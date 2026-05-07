@@ -1,0 +1,53 @@
+You are a senior data engineer and GIS engineer. Build an end-to-end, production-ready pipeline that maps deployed generators across North America from an Excel file.
+
+Context:
+- About 1200 deployed generators across the United States, Canada, and Mexico.
+- Current source data is a large Excel workbook with one row per customer/deployment.
+- Each customer has a unique ZIP/postal code.
+- Goal: enrich each record with latitude/longitude, generate QA reports, and export map-ready files.
+
+Input workbook:
+- Main sheet: 01_Clients_Input
+- Required columns: deployment_id, client_id, client_name, country_code, postal_code_raw, generator_count, generator_model, install_status, install_date, service_region, account_manager.
+- Treat postal_code_raw as text so leading zeros are preserved.
+
+Tasks:
+1. Load Excel with postal codes as text.
+2. Normalize country to US, CA, MX.
+3. Normalize postal codes:
+   - US: first 5 digits, preserve leading zero, support ZIP+4.
+   - CA: uppercase, remove spaces/hyphens, validate A1A1A1.
+   - MX: 5 digits, preserve leading zero.
+4. Create geo_key = country_code + "|" + postal_code_norm.
+5. Deduplicate geo_key before external geocoding.
+6. Build/load postal_geocode_reference with: country_code, postal_code_norm, geo_key, latitude, longitude, geocode_source, geocode_quality, source_version, updated_at.
+7. Preferred sources:
+   - US: Census TIGER/Line ZCTA5; representative point or centroid.
+   - CA: Statistics Canada PCCF or licensed Canada Post postal-code lat/lon data.
+   - MX: SEPOMEX / datos.gob.mx postal shapefiles; representative point or centroid.
+8. Use Mapbox Permanent Geocoding fallback only for unmatched postal codes if MAPBOX_TOKEN is available and permanent storage is needed.
+9. Join clients to postal reference by geo_key.
+10. QA checks: missing_country, missing_postal, invalid_postal_format, postal_not_found, duplicate_client_id, duplicate_geo_key, lat_lon_out_of_bounds, api_low_confidence.
+11. Validate rough coordinate bounds: US lat 18..72 lon -180..-60; CA lat 41..84 lon -142..-50; MX lat 14..33 lon -119..-86.
+12. Export:
+    - data/output/clients_enriched.xlsx
+    - data/output/clients_geocoded.csv
+    - data/output/clients.geojson with EPSG:4326
+    - data/output/geocode_exceptions.csv
+    - data/output/run_summary.json
+13. Power BI handoff: use latitude and longitude directly; do not let BI guess by postal code. Tooltip: client_name, postal_code_norm, generator_model, service_region. Legend: install_status. Size: generator_count.
+14. Include README and tests/assertions for row count, leading zeros, matched rate, and exception output.
+
+Implementation constraints:
+- Python 3.11+.
+- Suggested libraries: pandas, geopandas, shapely, pyarrow, openpyxl.
+- Modular functions: clean_clients(), normalize_country(), normalize_postal(), build_postal_reference(), geocode_fallback(), enrich_clients(), run_quality_checks(), export_outputs().
+- Single command: python src/run_pipeline.py --input data/input/clients.xlsx --output data/output
+- Do not ask follow-up questions; use the defaults above and document assumptions.
+
+Acceptance criteria:
+- Input row count is preserved.
+- At least 98% of valid rows receive lat/lon when reference data is present.
+- 100% of unmatched/invalid rows go to geocode_exceptions.csv.
+- GeoJSON loads into Power BI, Mapbox, ArcGIS, or QGIS.
+- Every geocoded row has source and quality.

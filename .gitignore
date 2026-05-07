@@ -1,0 +1,27 @@
+# Data
+data/input/*.xlsx
+data/input/*.csv
+data/output/
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pyright/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Claude Code (personal)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier

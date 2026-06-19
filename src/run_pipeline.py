@@ -16,7 +16,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="North America Generator Deployment Mapping Pipeline")
     parser.add_argument("--input", required=True, help="Path to input Excel workbook")
     parser.add_argument("--output", default="data/output", help="Output directory")
-    parser.add_argument("--reference-sheet", default="02_Postal_Reference_MOCK", help="Sheet with postal reference data")
+    parser.add_argument("--reference", default=None, help="Path to postal reference file (parquet or CSV)")
+    parser.add_argument("--reference-sheet", default="02_Postal_Reference_MOCK", help="Excel sheet with mock reference")
+    parser.add_argument(
+        "--reference-mode",
+        default="auto",
+        choices=["auto", "mock", "parquet", "synthetic"],
+        help="Reference source mode: auto, mock, parquet, or synthetic",
+    )
     args = parser.parse_args()
 
     print(f"Loading clients from {args.input}...")
@@ -25,7 +32,13 @@ def main() -> None:
     print(f"  Loaded {input_row_count} rows")
 
     print("Loading postal reference...")
-    reference = load_postal_reference(excel_path=args.input, sheet=args.reference_sheet, clients=clients)
+    reference = load_postal_reference(
+        reference_path=args.reference,
+        excel_path=args.input,
+        sheet=args.reference_sheet,
+        clients=clients,
+        reference_mode=args.reference_mode,
+    )
     print(f"  Reference has {len(reference)} unique geo_keys")
 
     print("Enriching clients with geocode data...")

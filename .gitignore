@@ -2,6 +2,12 @@
 data/input/*.xlsx
 data/input/*.csv
 data/output/
+data/reference/*.parquet
+data/reference/*.zip
+data/reference/*.csv
+
+# Local proof / scratch
+.local-lab/
 
 # Secrets
 .env

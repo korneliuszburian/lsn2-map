@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from src.clean_clients import clean_clients
@@ -62,6 +63,49 @@ class TestEnrichAndQA:
         assert len(bad) > 0
 
 
+class TestReferenceModes:
+    @pytest.mark.skipif(not Path(SAMPLE_EXCEL).exists(), reason="Template Excel not found")
+    def test_mock_mode_matches_sample_workbook(self):
+        clients = clean_clients(SAMPLE_EXCEL)
+        reference = load_postal_reference(
+            excel_path=SAMPLE_EXCEL,
+            clients=clients,
+            reference_mode="mock",
+        )
+        enriched = enrich_clients(clients, reference)
+
+        matched = (enriched["geocode_status"] == "matched").sum()
+        assert matched == 1200
+
+    def test_auto_mode_loads_explicit_reference(self, tmp_path):
+        reference_path = tmp_path / "reference.csv"
+        pd.DataFrame(
+            [
+                {
+                    "country_code": "US",
+                    "postal_code_norm": "10001",
+                    "geo_key": "US|10001",
+                    "latitude": 40.750633,
+                    "longitude": -73.997177,
+                    "geocode_source": "TEST",
+                    "geocode_quality": "test_centroid",
+                }
+            ]
+        ).to_csv(reference_path, index=False)
+
+        reference = load_postal_reference(reference_path=str(reference_path))
+
+        assert reference["geo_key"].to_list() == ["US|10001"]
+        assert reference["geocode_source"].to_list() == ["TEST"]
+
+    def test_parquet_mode_requires_reference_file(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_postal_reference(
+                reference_path=str(tmp_path / "missing.parquet"),
+                reference_mode="parquet",
+            )
+
+
 class TestExport:
     def test_export_creates_files(self, sample_clients, tmp_path):
         from src.clean_clients import normalize_countries, normalize_postals
@@ -86,7 +130,8 @@ class TestEndToEnd:
         clients = clean_clients(SAMPLE_EXCEL)
         assert len(clients) == 1200
 
-        reference = load_postal_reference(excel_path=SAMPLE_EXCEL, clients=clients)
+        from src.postal_reference import load_mock_reference
+        reference = load_mock_reference(SAMPLE_EXCEL)
         enriched = enrich_clients(clients, reference)
         assert len(enriched) == 1200
 

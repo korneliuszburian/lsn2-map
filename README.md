@@ -1,89 +1,116 @@
-# North America Generator Deployment Mapping Pipeline
+# LSN North America Map Pipeline
 
-Geocode ~1200 generator deployments across US/CA/MX from Excel input. Produces enriched Excel, CSV, GeoJSON (EPSG:4326), QA reports, and run summary.
+Pipeline geokoduje deploymenty generatorów z Excela dla US/CA/MX i eksportuje dane map-ready: XLSX, CSV, GeoJSON, exceptions CSV oraz run summary.
 
-## Quick Start
+Aktualny cel repo jest szerszy niż sam pipeline: przygotować powtarzalny prototyp mapy klienta LSN/North America z wariantami Exact Points, Regions, Badges, Heatmap i Heat + Points. Szczegóły wykonawcze są w `GOAL.md` i `docs/lsn-map-state-and-plan-2026-06-19.md`.
+
+## Setup
 
 ```bash
-# Setup
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Run with sample data
-make run
-
-# Or directly
-python src/run_pipeline.py --input data/sample/north_america_generator_mapping_template.xlsx --output data/output
 ```
+
+Używaj `.venv`. Globalne `python3` w aktualnym środowisku nie ma kompletu zależności takich jak `pandas`.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `make run` | Run pipeline with sample data |
-| `make test` | Run all tests |
-| `make lint` | Lint with ruff |
-| `make typecheck` | Type check with pyright |
-| `make clean` | Remove output files |
-| `make all` | Lint + test + run |
+```bash
+make prototype          # demo pipeline + client-map HTML
+make prototype-geographic # demo pipeline + GIS-correct styled map HTML
+make run-demo           # sample workbook with mock reference, 1200/1200 demo rows
+make run-parquet-sample # sample workbook with real local parquet, expected low demo match
+make run-prod           # CLIENT_INPUT=data/input/clients.xlsx with parquet reference
+make map-options        # render data/output/lsn-map-options.html from clients_geocoded.csv
+make map-geographic     # render data/output/lsn-map-geographic.html from clients_geocoded.csv
+make serve              # serve data/output at http://127.0.0.1:8017/
+make preview            # regenerate prototype, then serve it in the foreground
+make test               # pytest
+make lint               # ruff
+make typecheck          # pyright, currently has known pandas/GeoPandas typing failures
+make clean              # remove data/output
+```
 
-## Pipeline Steps
+Direct run:
 
-1. **Load** — Read Excel, treat postal codes as text
-2. **Normalize** — Country → ISO (US/CA/MX), postal codes → canonical format
-3. **Reference** — Load postal geocode reference (mock from template Excel)
-4. **Enrich** — Left-join on `geo_key` (country + postal)
-5. **QA** — Flag missing/invalid/unmatched/bounds violations
-6. **Export** — XLSX, CSV, GeoJSON, exceptions CSV, run summary JSON
+```bash
+python -m src.run_pipeline \
+  --input data/sample/north_america_generator_mapping_template.xlsx \
+  --output data/output \
+  --reference-mode mock
+python -m src.render_lsn_map_options \
+  --input data/output/clients_geocoded.csv \
+  --map-image data/assets/client-map/north-america-map-ai-web.png \
+  --output data/output/lsn-map-options.html
+```
+
+Build local postal reference:
+
+```bash
+make reference
+```
+
+`data/reference/postal_reference.parquet` is a local generated artifact and is ignored by git.
+
+## Reference Behavior
+
+The pipeline has explicit reference modes:
+
+- `auto`: explicit `--reference`, default parquet, Excel mock, then synthetic fallback.
+- `mock`: force workbook sheet `02_Postal_Reference_MOCK`; use for visual demo/prototype.
+- `parquet`: force explicit/default parquet; use for client/production data.
+- `synthetic`: generate deterministic dev-only coordinates from input rows.
+
+Important: the sample workbook contains synthetic postal codes. Demo mode (`--reference-mode mock`) produces `1200/1200` matched rows for visual comparison. Parquet mode on the same synthetic sample currently produces `702/1200` matched rows and correctly warns below the 98% target.
 
 ## Output Files
 
-| File | Description |
-|------|-------------|
-| `clients_enriched.xlsx` | All rows with lat/lon and status |
-| `clients_geocoded.csv` | Matched rows only |
-| `clients.geojson` | GeoJSON EPSG:4326 for Power BI / Mapbox / QGIS |
-| `geocode_exceptions.csv` | Unmatched/invalid rows |
-| `run_summary.json` | Match rate, counts, QA flags |
+Generated under `data/output/`:
 
-## Postal Code Normalization
+- `clients_enriched.xlsx`
+- `clients_geocoded.csv`
+- `clients.geojson`
+- `geocode_exceptions.csv`
+- `run_summary.json`
+- `lsn-map-options.html`
+- `lsn-map-geographic.html`
+- `lsn-north-america-geographic.svg`
 
-| Country | Format | Example |
-|---------|--------|---------|
-| US | 5 digits (ZIP+4 → first 5) | `10001-1234` → `10001`, `02108` → `02108` |
-| CA | A1A1A1 (strip spaces/hyphens) | `K1A 0B1` → `K1A0B1`, `M5H-2N2` → `M5H2N2` |
-| MX | 5 digits | `06600` → `06600`, `01000` → `01000` |
+`data/output/` is ignored. Regenerate the map prototype with `make prototype`; the source of truth is `src/render_lsn_map_options.py`.
 
-## Production Notes
+The supplied LSN artwork is not a georeferenced GIS basemap. The current renderer supports Exact Points as a diagnostic lon/lat-to-image view, plus deterministic regional anchors for branded overview performance. Use the GIS-correct prototype, or georeference the artwork with control points, for trustworthy exact lon/lat placement.
 
-The template uses **mock geocode data**. For production:
+The GIS-correct prototype is `data/output/lsn-map-geographic.html`. It generates a new LSN-styled SVG basemap from Natural Earth boundaries using North America Albers Equal Area projection, then projects deployment lon/lat into the same coordinate space. Demo data currently has 181 raw outside/coastal records that are display-snapped and counted in runtime proof as `displayAdjusted`.
 
-- **US**: Replace with Census TIGER/Line ZCTA5 centroids
-- **CA**: Replace with Statistics Canada PCCF or Canada Post data
-- **MX**: Replace with SEPOMEX / datos.gob.mx postal shapefiles
-- **Fallback**: Set `MAPBOX_TOKEN` env var for Mapbox Permanent Geocoding on unmatched
+Local preview URL after `make serve`:
 
-## Architecture
-
-```
-src/
-  run_pipeline.py       CLI entry point
-  clean_clients.py      Load + normalize
-  normalize_postal.py   US/CA/MX postal normalization
-  postal_reference.py   Mock + real reference loading
-  enrich.py             Join clients to reference
-  qa.py                 Quality checks
-  export.py             XLSX/CSV/GeoJSON/JSON export
-tests/
-  test_normalize_postal.py   25 unit tests
-  test_pipeline.py            8 integration tests
+```text
+http://127.0.0.1:8017/lsn-map-options.html
 ```
 
-## Power BI Setup
+## Client Map Assets
 
-Use latitude/longitude columns directly. Do not let BI guess by postal code.
+Client/demo assets live under `data/assets/client-map/`.
 
-- **Tooltip**: client_name, postal_code_norm, generator_model, service_region
-- **Legend**: install_status
-- **Size**: generator_count
+Key files:
+
+- `north-america-map.ai` - original supplied AI/PDF artwork.
+- `north-america-map-ai-web.png` - browser-ready map artwork.
+- `figma-section-895-2673.png` - Figma section screenshot context.
+
+## Current Known State
+
+- `pytest`: passing.
+- `ruff`: passing.
+- `pyright`: currently failing on pandas/GeoPandas typing issues.
+- `make prototype`: passing; generates the demo pipeline output and `data/output/lsn-map-options.html`.
+- Map renderer: canvas exact points plus regional aggregates, not 1200 DOM markers.
+- Visual proof is local under `.local-lab/proof/lsn-map/` and is ignored by git.
+
+## Guardrails
+
+- Do not commit real client input data.
+- Do not commit large generated references or random `data/output` artifacts.
+- Do not claim production geocode quality without running on the real client workbook.
+- Do not build a WordPress block or React app until the client chooses a direction.

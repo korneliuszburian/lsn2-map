@@ -2,7 +2,23 @@
 
 ## Active Task
 
-Stan na 2026-06-19: prototyp porównawczy LSN map jest zbudowany i zweryfikowany; po feedbacku renderer ma osobny tryb `Exact Points` oraz regionalne agregaty canvas zamiast 1200 markerów DOM.
+Stan na 2026-06-22: prototyp porównawczy LSN map jest zbudowany, zweryfikowany, commitowany i wypchnięty na `origin/main`.
+
+Aktualny remote commit:
+
+- `a8e2585 feat: add LSN map prototypes`
+
+Lokalny serwer preview był odpalony na:
+
+- `http://127.0.0.1:8017/lsn-map-options.html` - dostarczony artwork `.ai` z trybem Exact Points i wariantami Regions/Badges/Heatmap/Heat + Points.
+- `http://127.0.0.1:8017/lsn-map-geographic.html` - GIS-correct wariant w stylu LSN, North America Albers Equal Area.
+
+Świeże screenshoty dla Asany / szefa z 2026-06-22 są lokalnie w:
+
+- `C:\Users\krnij\Desktop\lsn-map-current-state-2026-06-22\01-artwork-exact-points.png`
+- `C:\Users\krnij\Desktop\lsn-map-current-state-2026-06-22\02-gis-exact-points.png`
+
+Do pokazania jako aktualny stan preferować `02-gis-exact-points.png`. `01-artwork-exact-points.png` traktować jako dowód problemu z dostarczonym artworkiem: wygląda jak grafika marketingowa, ale nie jest wiarygodnym basemapem pod exact lon/lat.
 
 `/home/krn/.codex/attachments/397a5685-3b57-4e4c-bd85-bedd091775db/pasted-text-1.txt`
 
@@ -17,7 +33,9 @@ Cel klienta: użyć dostarczonej mapy LSN / North America z pliku `.ai`, nanieś
 
 Klient nie ma jeszcze finalnego designu sekcji. Oczekiwany wynik to kilka sensownych propozycji, nie ciężka aplikacja ani rozbudowana architektura.
 
-Ważne: dostarczony artwork nie jest georeferencjonowaną mapą GIS. Aktualny prototyp na tym artworku jest branded regional overview. Dokładne lon/lat placement wymaga MapLibre/real geography albo georeferencji artworku przez punkty kontrolne.
+Ważne: dostarczony artwork nie jest georeferencjonowaną mapą GIS. Aktualny prototyp na tym artworku może służyć jako branded overview / porównanie wariantów, ale dokładne lon/lat placement wymaga GIS basemap albo georeferencji artworku przez punkty kontrolne.
+
+Aktualna rekomendacja do Michała / Asany: poczekać na oficjalną mapę, ale od razu doprecyzować wymagania techniczne. Jeśli klient chce exact points, mapa musi mieć znaną projekcję/georeferencję albo być przygotowana na bazie realnych danych geograficznych. Jeśli dostarczą tylko kolejny `.ai` jako ilustrację, plan B to odwzorować ich design samodzielnie na prawdziwej mapie GIS.
 
 ## Repo State Summary
 
@@ -31,7 +49,7 @@ Istniejący rdzeń:
 - `src/postal_reference.py` - ładowanie referencji parquet/mock/synthetic.
 - `src/render_lsn_map_options.py` - generator `data/output/lsn-map-options.html` na artworku klienta.
 - `src/render_lsn_geographic_map.py` - generator `data/output/lsn-map-geographic.html` z prawdziwych granic GIS w stylu LSN.
-- `src/build_reference.py` - nieśledzony jeszcze plik do budowy referencji z Census/GeoNames.
+- `src/build_reference.py` - skrypt do budowy referencji z Census/GeoNames.
 - `src/export.py` - eksport `clients_enriched.xlsx`, `clients_geocoded.csv`, `clients.geojson`, `geocode_exceptions.csv`, `run_summary.json`.
 
 Istniejące assety/prototypy lokalne:
@@ -61,21 +79,22 @@ Uwaga: `data/output/` jest gitignored. `lsn-map-options.html` jest artefaktem ge
 - Figma node `895:2673` z pliku `4NrYxpTRMC0mAtyuZMVXMK` został sprawdzony przez Figma MCP. To pełny homepage mock z sekcją "Our Reach Across North America" i statyczną mapą, nie gotowa specyfikacja interaktywnej mapy.
 - Browser proof po poprawce rendereru exact: `.local-lab/proof/lsn-map/runtime-proof-exact-points.txt` pokazuje `active=Exact Points`, `rows=1200`, `plotted=1200`, `renderer=canvas-exact-points-and-region-aggregates`, `pointPlacement.lonLatLinear=1200`, `pointPlacement.clamped=0`, `markerIcons=0`.
 - Browser proof GIS: `.local-lab/proof/lsn-map/runtime-proof-geographic.txt` pokazuje `active=Exact Points`, `rows=1200`, `plotted=1200`, `insideViewport=1200`, `rawInsideBasemap=1019`, `displayAdjusted=181`, `markerIcons=0`, `pointCanvas=1`, `zoomAnimation=false`.
-- Aktualne screenshoty do Asany bez badge'y są w `C:\Users\krnij\Desktop\lsn-map-screenshots\exact-points-only\`: `01-artwork-exact-points.png` i `02-gis-exact-points.png`.
+- Screenshoty do Asany bez badge'y z 2026-06-19 są w `C:\Users\krnij\Desktop\lsn-map-screenshots\exact-points-only\`: `01-artwork-exact-points.png` i `02-gis-exact-points.png`.
+- Aktualne screenshoty z 2026-06-22 są w `C:\Users\krnij\Desktop\lsn-map-current-state-2026-06-22\`: `01-artwork-exact-points.png` i `02-gis-exact-points.png`.
 - Screenshoty proof: `.local-lab/proof/lsn-map/regions-bubbles-1920x1080.png`, `region-badges-1920x1080.png`, `heat-regions-1920x1080.png`, `hybrid-regions-1920x1080.png`, `regions-bubbles-1440x900.png`.
 - Finalne gate'y: `make test` 36 passed, `make lint` all checks passed, `make prototype` passed, `make typecheck` failuje 16 błędami pyright/pandas typing jako zapisany residual risk.
 
 ## Current Worktree Notes
 
-Aktualny status jest celowo dirty, bo praca nie była commitowana w tej sesji. Decyzje:
+Stan po domknięciu pracy:
 
-- zmodyfikowane source/config/docs: `.gitignore`, `CLAUDE.md`, `Makefile`, `README.md`, `requirements.txt`, `src/postal_reference.py`, `src/run_pipeline.py`, `tests/test_pipeline.py`;
-- nowe source/docs: `AGENTS.md`, `GOAL.md`, `docs/lsn-map-state-and-plan-2026-06-19.md`, `src/build_reference.py`, `src/render_lsn_map_options.py`, `docs/ai-prompts/map_visualization_prompt.md`;
-- source assety demo: `data/assets/client-map/*`;
-- placeholder: `data/reference/.gitkeep` może zostać jako commit candidate, a `data/reference/postal_reference.parquet` zostaje ignorowanym lokalnym build artifactem;
-- generated/ignored: `data/output/*`, `.local-lab/proof/lsn-map/*`, cache/bytecode.
+- `main` był czysty i równy z `origin/main` na commitcie `a8e2585` przed aktualizacją tego pliku.
+- `data/output/*` pozostaje generated i gitignored.
+- `.local-lab/*` pozostaje lokalnym proof/scratch i gitignored.
+- `data/reference/postal_reference.parquet` oraz zipy Natural Earth pozostają lokalnym cache/build artifactem i są ignorowane.
+- Screeny na Desktop nie są częścią repo; służą tylko do wysłania w Asanie lub pokazania szefowi.
 
-Nie revertować tych zmian bez wyraźnej zgody użytkownika. Traktować je jako aktualny kontekst pracy.
+Nie revertować istniejących zmian bez wyraźnej zgody użytkownika. Traktować commit `a8e2585` plus późniejsze aktualizacje dokumentacyjne jako aktualny kontekst pracy.
 
 ## Recommended Direction
 
@@ -91,10 +110,11 @@ Najlepszy praktyczny kierunek na teraz:
 
 ## Concrete Next Steps
 
-1. Pokazać użytkownikowi/klientowi lokalny prototyp: `http://127.0.0.1:8017/lsn-map-options.html`.
-2. Zebrać decyzję: Exact Points, Regions, Badges, Heatmap, Heat + Points, albo GIS/GCP real geography.
-3. Dopiero po wyborze kierunku planować WordPress/React/embed.
-4. Opcjonalna techniczna poprawka przed PR: posprzątać pyright pandas/GeoPandas typing, jeśli ma być twardym gate'em.
+1. Na Asanie pokazać przede wszystkim `02-gis-exact-points.png` jako technicznie poprawny kierunek.
+2. Poczekać na oficjalną mapę klienta, ale poprosić o mapę z projekcją/georeferencją albo potwierdzić, że to tylko marketingowa ilustracja.
+3. Jeśli oficjalna mapa dalej będzie tylko `.ai`/ilustracją, zaproponować odwzorowanie designu na prawdziwej mapie GIS.
+4. Dopiero po wyborze kierunku planować WordPress/React/embed.
+5. Opcjonalna techniczna poprawka przed PR: posprzątać pyright pandas/GeoPandas typing, jeśli ma być twardym gate'em.
 
 ## Commands
 

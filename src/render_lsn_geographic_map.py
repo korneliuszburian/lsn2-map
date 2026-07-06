@@ -19,7 +19,7 @@ from typing import Any
 import geopandas as gpd
 import requests
 from pyproj import Transformer
-from shapely.geometry import GeometryCollection, MultiPolygon, Point, Polygon, box
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import nearest_points, transform, unary_union
 
@@ -33,10 +33,15 @@ WIDTH = 1731
 HEIGHT = 1800
 PADDING_X = 105
 PADDING_Y = 70
+BACKGROUND_COLOR = "#f4f8f5"
 COUNTRIES = ("US", "CA", "MX")
 COUNTRY_COLORS = {"US": "#007f3d", "CA": "#345168", "MX": "#3f3f41"}
 COUNTRY_NAMES = {"US": "United States", "CA": "Canada", "MX": "Mexico"}
-LINE_COLOR = "rgba(255,255,255,.78)"
+OUTLINE_COLOR = "rgba(255,255,255,.86)"
+SUBDIVISION_COLOR = "rgba(255,255,255,.56)"
+GRID_COLOR = "rgba(255,255,255,.30)"
+GRID_SPACING_DEGREES = 10.0
+GRID_STROKE_WIDTH = 0.9
 PROJECTION_NAME = "North America Albers Equal Area"
 PROJECTION = (
     "+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 "
@@ -76,7 +81,14 @@ def read_deployments(path: Path) -> list[dict[str, Any]]:
     return deployments
 
 
-def render_html(input_path: Path, cache_dir: Path, basemap_output: Path, title: str) -> str:
+def render_html(
+    input_path: Path,
+    cache_dir: Path,
+    basemap_output: Path,
+    title: str,
+    grid_spacing: float,
+    show_grid: bool,
+) -> str:
     deployments = read_deployments(input_path)
     if not deployments:
         raise ValueError(f"No geocoded deployments found in {input_path}")
@@ -90,7 +102,15 @@ def render_html(input_path: Path, cache_dir: Path, basemap_output: Path, title: 
     if display_union.is_empty:
         display_union = projected_union
     viewport = build_viewport([geom for _, geom in projected_admin0])
-    basemap_svg = render_basemap_svg(projected_admin0, projected_admin1, viewport)
+    basemap_svg = render_basemap_svg(
+        projected_admin0,
+        projected_admin1,
+        viewport,
+        projected_union,
+        transformer,
+        grid_spacing=grid_spacing,
+        show_grid=show_grid,
+    )
     write_text(basemap_svg, basemap_output)
 
     projected_deployments = project_deployments(deployments, transformer, viewport, projected_union, display_union)
@@ -245,13 +265,17 @@ def render_basemap_svg(
     admin0: list[tuple[str, BaseGeometry]],
     admin1: list[tuple[str, BaseGeometry]],
     viewport: dict[str, float],
+    projected_union: BaseGeometry,
+    transformer: Transformer,
+    grid_spacing: float = GRID_SPACING_DEGREES,
+    show_grid: bool = True,
 ) -> str:
     country_paths = []
     for cc, geom in admin0:
         path = geometry_to_path(geom.simplify(5_000, preserve_topology=True), viewport)
         country_paths.append(
             f'<path class="country country-{cc}" d="{path}" fill="{COUNTRY_COLORS[cc]}" '
-            'stroke="#ffffff" stroke-width="1.7" stroke-linejoin="round"/>'
+            f'stroke="{OUTLINE_COLOR}" stroke-width="1.7" stroke-linejoin="round"/>'
         )
 
     subdivision_paths = []
@@ -259,22 +283,108 @@ def render_basemap_svg(
         path = geometry_to_path(geom.simplify(4_000, preserve_topology=True), viewport)
         subdivision_paths.append(
             f'<path class="subdivision subdivision-{cc}" d="{path}" fill="none" '
-            'stroke="rgba(255,255,255,.72)" stroke-width="1.15" stroke-linejoin="round"/>'
+            f'stroke="{SUBDIVISION_COLOR}" stroke-width="1.05" stroke-linejoin="round"/>'
         )
 
+    grid_paths = []
+    if show_grid:
+        for path in build_grid_lines(
+            projected_union=projected_union,
+            transformer=transformer,
+            spacing=grid_spacing,
+            viewport=viewport,
+        ):
+            grid_paths.append(
+                f'<path class="grid-line" d="{path}" fill="none" '
+                f'stroke="{GRID_COLOR}" stroke-width="{GRID_STROKE_WIDTH}" stroke-dasharray="4 8"/>'
+            )
+
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}">
-  <rect width="{WIDTH}" height="{HEIGHT}" fill="#ffffff"/>
+  <rect width="{WIDTH}" height="{HEIGHT}" fill="{BACKGROUND_COLOR}"/>
+  <g id="grid">
+    {''.join(grid_paths)}
+  </g>
   <g id="countries">
     {''.join(country_paths)}
   </g>
   <g id="subdivisions">
     {''.join(subdivision_paths)}
-  </g>
+    </g>
 </svg>
 """
 
 
+def build_grid_lines(
+    projected_union: BaseGeometry,
+    transformer: Transformer,
+    spacing: float,
+    viewport: dict[str, float],
+) -> list[str]:
+    lines: list[str] = []
+    if spacing <= 0:
+        return lines
+
+    margin = max((viewport["maxx"] - viewport["minx"]) * 0.03, 10_000)
+    union_bounds = projected_union.bounds
+    clip_bounds = box(
+        union_bounds[0] - margin,
+        union_bounds[1] - margin,
+        union_bounds[2] + margin,
+        union_bounds[3] + margin,
+    )
+
+    lon_min, lon_max = -170.0, -50.0
+    lat_min, lat_max = 14.0, 84.0
+
+    # Vertical longitude lines
+    for lon in _frange(lon_min, lon_max + 0.0001, 1.0):
+        if not _is_grid_line(lon, lon_min, spacing):
+            continue
+        points = [transformer.transform(lon, lat) for lat in _frange(lat_min, lat_max + 0.0001, 0.5)]
+        if len(points) < 2:
+            continue
+        path = geometry_to_path(LineString(points).intersection(clip_bounds), viewport)
+        if path:
+            lines.append(path)
+
+    # Horizontal latitude lines
+    for lat in _frange(lat_min, lat_max + 0.0001, 1.0):
+        if not _is_grid_line(lat, lat_min, spacing):
+            continue
+        points = [transformer.transform(lon, lat) for lon in _frange(lon_min, lon_max + 0.0001, 0.5)]
+        if len(points) < 2:
+            continue
+        path = geometry_to_path(LineString(points).intersection(clip_bounds), viewport)
+        if path:
+            lines.append(path)
+
+    return lines
+
+
+def _frange(start: float, stop: float, step: float) -> list[float]:
+    out: list[float] = []
+    value = start
+    while value <= stop + 1e-12:
+        out.append(round(value, 12))
+        value += step
+    return out
+
+
+def _is_grid_line(value: float, origin: float, spacing: float) -> bool:
+    return abs((value - origin) / spacing - round((value - origin) / spacing)) < 1e-6
+
+
 def geometry_to_path(geom: BaseGeometry, viewport: dict[str, float]) -> str:
+    if geom.is_empty:
+        return ""
+    if isinstance(geom, LineString):
+        return line_to_path(geom.coords, viewport)
+    if isinstance(geom, MultiLineString):
+        return " ".join(
+            line_to_path(line.coords, viewport)
+            for line in geom.geoms
+            if not line.is_empty
+        )
     parts: list[str] = []
     for poly in iter_polygons(geom):
         parts.append(ring_to_path(poly.exterior.coords, viewport))
@@ -290,6 +400,15 @@ def ring_to_path(coords: Any, viewport: dict[str, float]) -> str:
         command = "M" if i == 0 else "L"
         commands.append(f"{command}{sx:.1f},{sy:.1f}")
     commands.append("Z")
+    return " ".join(commands)
+
+
+def line_to_path(coords: Any, viewport: dict[str, float]) -> str:
+    commands: list[str] = []
+    for i, (x, y, *_) in enumerate(coords):
+        sx, sy = to_svg_point(float(x), float(y), viewport)
+        command = "M" if i == 0 else "L"
+        commands.append(f"{command}{sx:.1f},{sy:.1f}")
     return " ".join(commands)
 
 
@@ -355,10 +474,20 @@ def main() -> None:
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
     parser.add_argument("--basemap-output", default=DEFAULT_BASEMAP_OUTPUT, help="Generated SVG basemap path")
     parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR, help="Cache directory for Natural Earth zips")
+    parser.add_argument("--grid-spacing", type=float, default=GRID_SPACING_DEGREES, help="Graticule spacing in degrees")
+    parser.add_argument("--no-grid", action="store_false", dest="show_grid", help="Disable geographic grid lines")
+    parser.set_defaults(show_grid=True)
     parser.add_argument("--title", default="LSN North America - Geographic", help="Title shown in the prototype")
     args = parser.parse_args()
 
-    html_text = render_html(Path(args.input), Path(args.cache_dir), Path(args.basemap_output), args.title)
+    html_text = render_html(
+        Path(args.input),
+        Path(args.cache_dir),
+        Path(args.basemap_output),
+        args.title,
+        grid_spacing=args.grid_spacing,
+        show_grid=args.show_grid,
+    )
     write_text(html_text, Path(args.output))
     print(f"Rendered {args.output} from {args.input}")
     print(f"Generated basemap {args.basemap_output}")
@@ -513,6 +642,7 @@ HTML_TEMPLATE = """<!doctype html>
     </div>
     <nav class="modebar" aria-label="Visualization modes">
       <button class="mode-btn active" data-mode="points">Exact Points</button>
+      <button class="mode-btn" data-mode="flags">Flags</button>
       <button class="mode-btn" data-mode="clusters">Clusters</button>
       <button class="mode-btn" data-mode="heat">Heatmap</button>
       <button class="mode-btn" data-mode="hybrid">Heat + Points</button>
@@ -552,7 +682,7 @@ HTML_TEMPLATE = """<!doctype html>
       "Inactive": "#ef4444"
     };
     const countryColors = { US: "#007f3d", CA: "#345168", MX: "#3f3f41" };
-    const modeLabels = { points: "Points", clusters: "Clusters", heat: "Heat", hybrid: "Hybrid" };
+    const modeLabels = { points: "Points", flags: "Flags", clusters: "Clusters", heat: "Heat", hybrid: "Hybrid" };
     function escapeHtml(value) {
       return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
     }
@@ -664,6 +794,7 @@ HTML_TEMPLATE = """<!doctype html>
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.viewport.x, this.viewport.y);
         if (this.mode === "clusters") this.drawClusters(ctx);
+        else if (this.mode === "flags") this.drawFlags(ctx);
         else this.drawPoints(ctx);
       },
       drawPoints(ctx) {
@@ -720,12 +851,60 @@ HTML_TEMPLATE = """<!doctype html>
             nearestDist = dist;
           }
         }
-        if (nearest && nearestDist <= 18) {
-          L.popup({ closeButton: true, offset: [0, -6] })
+        const threshold = this.mode === "flags" ? 20 : 18;
+        if (nearest && nearestDist <= threshold) {
+          const offset = this.mode === "flags" ? [6, -14] : [0, -6];
+          L.popup({ closeButton: true, offset })
             .setLatLng(nearest.latlng)
             .setContent(popupHtml(nearest))
             .openOn(this.map);
         }
+      },
+      drawFlags(ctx) {
+        const zoom = this.map.getZoom();
+        const flagHeight = Math.max(9, Math.min(17, 11 + zoom * 1.1));
+        const flagWidth = flagHeight * 1.22;
+        const poleHeight = flagHeight + 8;
+        ctx.save();
+        for (const d of this.points) {
+          const p = this.pointToCanvas(d);
+          if (p.x < -24 || p.y < -28 || p.x > this.viewport.x + 24 || p.y > this.viewport.y + 24) continue;
+          const x = p.x;
+          const y = p.y;
+          const flagX = x + 1;
+          const flagY = y - poleHeight;
+          ctx.beginPath();
+          ctx.moveTo(x, y - poleHeight + 1);
+          ctx.lineTo(x, y + 2);
+          ctx.lineWidth = 2.8;
+          ctx.strokeStyle = "rgba(255,255,255,.9)";
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x, y - poleHeight + 1);
+          ctx.lineTo(x, y + 2);
+          ctx.lineWidth = 1.35;
+          ctx.strokeStyle = "rgba(63,63,65,.64)";
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(flagX, flagY);
+          ctx.lineTo(flagX + flagWidth, flagY + flagHeight * 0.08);
+          ctx.lineTo(flagX + flagWidth * 0.78, flagY + flagHeight * 0.5);
+          ctx.lineTo(flagX + flagWidth, flagY + flagHeight * 0.92);
+          ctx.lineTo(flagX, flagY + flagHeight);
+          ctx.closePath();
+          ctx.fillStyle = statusColors[d.status] || countryColors[d.cc] || "#10b981";
+          ctx.fill();
+          ctx.lineWidth = 1.1;
+          ctx.strokeStyle = "rgba(255,255,255,.92)";
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x, y + 2.5, 2.4, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,255,255,.95)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(63,63,65,.35)";
+          ctx.stroke();
+        }
+        ctx.restore();
       }
     });
     const heatLayer = L.heatLayer(heatPoints, {
@@ -739,6 +918,7 @@ HTML_TEMPLATE = """<!doctype html>
     function setMode(mode) {
       for (const layer of [pointLayer, heatLayer]) map.removeLayer(layer);
       if (mode === "points") { pointLayer.setMode("points"); pointLayer.addTo(map); }
+      if (mode === "flags") { pointLayer.setMode("flags"); pointLayer.addTo(map); }
       if (mode === "clusters") { pointLayer.setMode("clusters"); pointLayer.addTo(map); }
       if (mode === "heat") heatLayer.addTo(map);
       if (mode === "hybrid") { heatLayer.addTo(map); pointLayer.setMode("points"); pointLayer.addTo(map); }

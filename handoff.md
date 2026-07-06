@@ -102,16 +102,31 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 
 ## 4. Bieżący stan repo (2026-07-06)
 
-- Gałąź `main`, zsynchronizowana z `origin/main`.
-- Ostatni commit na zdalnym: **`1d9f8a2 feat: add figma-aligned map renderer and new NA map artwork`**.
+- Gałąź `main`.
+- Ostatni commit lokalny/na `origin/main` po tej rundzie dotyczy poprawy GIS renderer + dodania trybu `Flags`.
 - Wszystkie źródła i assety są commitowane i wypchnięte.
-- Brak lokalnych niecommitowanych zmian poza build artifacts (`.venv/`, `data/output/`, `data/reference/*.parquet`, `.local-lab/`).
-- GitHub przy puszu zasygnalizował, że reguła „changes via pull request" została obejścia (commit poszedł bezpośrednio na `main`) — push się udał, repo aktualne. Na przyszłość: dla `main` robić PR.
+- Aktualny stan roboczy po komicie: czysty (poza ignorowanymi artefaktami: `.venv/`, `data/output/`, `data/reference/*.parquet`, `.local-lab/`).
+- W tej sesji zaktualizowano `src/render_lsn_geographic_map.py`:
+  - doraźny styl GIS mapy bazującej na Natural Earth:
+    - kolory obszarów US/CA/MX pod brand,
+    - obrys państw i granice stanów/prowincji,
+    - opcjonalna siatka geograficzna,
+    - ciemniejszy, stonowany background.
+  - rozszerzony HTML `lsn-map-geographic.html`:
+    - tryb `Flags` (canvasowe flagi) obok `Points`, `Clusters`, `Heatmap`, `Heat + Points`,
+    - `Fit` + `Fullscreen`,
+    - lepszy, stabilny overlay geograficzny na `CRS.Simple` + image overlay.
+  - dodatkowe opcje CLI: `--grid-spacing`, `--no-grid`.
+- Komendy uruchomieniowe sprawdzone po zmianach:
+  - `make map-geographic` ✅
+  - `make prototype-geographic` ✅
+  - `python3 -m py_compile src/render_lsn_geographic_map.py` ✅
+  - `ruff check src/render_lsn_geographic_map.py` ✅
 
 ### Generated outputs (`data/output/`, gitignored — nie commitować)
 - `lsn-map-options.html` — branded prototype, tryby `Pins`/`Regions`/`Flags`/`Heatmap`/`Heat + Pins` + fit + fullscreen. **Artefakt — nie edytować ręcznie**, regenerować przez `make map-options`.
 - `lsn-map-figma.html` — Figma `Map Zoom-In`, dwa warianty `Default`/`Variant2` stacked.
-- `lsn-map-geographic.html` — GIS-correct, Albers Equal Area, tryby exact/clusters/heat.
+- `lsn-map-geographic.html` — GIS-correct, Albers Equal Area, tryby exact points/flags/clusters/heat/heat+points.
 - `clients_geocoded.csv`, `clients_enriched.xlsx`, `clients.geojson`, `geocode_exceptions.csv`, `run_summary.json`.
 - `map.html` — starszy MapLibre dashboard; **artefakt, nie source of truth**.
 

@@ -5,6 +5,7 @@ data/output/
 data/reference/*.parquet
 data/reference/*.zip
 data/reference/*.csv
+NA_Map_Assets*.zip
 
 # Local proof / scratch
 .local-lab/

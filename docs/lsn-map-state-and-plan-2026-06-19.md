@@ -119,6 +119,67 @@ Niski match-rate na sample nie dowodzi, że produkcyjne geokodowanie jest złe. 
 - Dodano wariant GIS-correct: `src/render_lsn_geographic_map.py`, target `make prototype-geographic`, output `data/output/lsn-map-geographic.html` i `data/output/lsn-north-america-geographic.svg`.
 - GIS proof: `.local-lab/proof/lsn-map/runtime-proof-geographic.txt` pokazuje `active=Exact Points`, `rows=1200`, `plotted=1200`, `insideViewport=1200`, `rawInsideBasemap=1019`, `displayAdjusted=181`, `markerIcons=0`, `pointCanvas=1`, `zoomAnimation=false`.
 
+### Run log - kontynuacja 2026-06-30
+
+Nowy input od użytkownika:
+
+- `NA_Map_Assets (1).zip`
+
+Zawartość paczki:
+
+- `NA_Map_Assets/Full_NA_MAP.ai`
+- `NA_Map_Assets/NEW NA MAP.svg`
+- `NA_Map_Assets/Pin_NA_Map.ai`
+- `NA_Map_Assets/Pin_NA_Map.svg`
+
+Wnioski z rozpoznania:
+
+- `NEW NA MAP.svg` ma `viewBox="0 0 816 838.86"`, 740 ścieżek, 144 polygony i tylko podstawowe style fill.
+- SVG jest sensownym wektorowym assetem do branded preview, ale nie zawiera CRS, projekcji, georeferencji ani semantycznych ID regionów.
+- `Pin_NA_Map.svg` nadaje się jako marker w canvas rendererze.
+- Samo przejście z PNG/AI na SVG poprawia jakość wizualną, ale nie rozwiązuje dokładności lon/lat. Do exact placement produkcyjnie nadal potrzebna jest mapa GIS albo georeferencja/control points.
+
+Zmiany implementacyjne:
+
+- Dodano source assety:
+  - `data/assets/client-map/new-na-map.svg`
+  - `data/assets/client-map/pin-na-map.svg`
+  - `data/assets/client-map/full-na-map.ai`
+  - `data/assets/client-map/pin-na-map.ai`
+- `src/render_lsn_map_options.py` czyta teraz wymiary SVG lub PNG i osadza mapę/pin jako data URI.
+- Domyślne assety renderera to `new-na-map.svg` i `pin-na-map.svg`.
+- `Makefile` dostał `PIN_IMAGE` i przekazuje `--pin-image` do `map-options`.
+- UI branded prototype ma teraz tryby `Pins`, `Regions`, `Flags`, `Heatmap`, `Heat + Pins`.
+- `Pins` i `Heat + Pins` rysują pin SVG na canvasie, nie tworzą 1200 DOM markerów.
+- `Flags` zostały zmienione z prostych badge'y na canvasowe exact flag markers.
+- Dodano `src/render_lsn_figma_map.py`, osobny renderer Figma node `1715:3527` (`Map Zoom-In`), z dwoma wariantami `Default`/`Variant2` w jednym HTML.
+- `lsn-map-figma.html` zachowuje crop ratios z Figmy, ale mapę, punkty i klastry rysuje dynamicznie z CSV, zamiast używać prekomponowanego obrazka z markerami.
+
+Walidacja w tej sesji:
+
+- `python3 -m py_compile src/render_lsn_map_options.py`: passed.
+- `python3 -m py_compile src/render_lsn_figma_map.py`: passed.
+- `python3 -m src.render_lsn_map_options --input data/output/clients_geocoded.csv --map-image data/assets/client-map/new-na-map.svg --pin-image data/assets/client-map/pin-na-map.svg --output data/output/lsn-map-options.html`: passed.
+- `make map-options`: passed.
+- `make map-figma`: passed.
+- Local preview: `http://127.0.0.1:8017/lsn-map-options.html` HTTP 200.
+- Figma preview: `http://127.0.0.1:8017/lsn-map-figma.html` HTTP 200.
+- Browser runtime proof: `rows=1200`, `plotted=1200`, `sourceMap=data/assets/client-map/new-na-map.svg`, `sourcePin=data/assets/client-map/pin-na-map.svg`, `renderer=svg-map-canvas-pins-and-region-aggregates`, `markerIcons=0`, `markerCanvas=1`, `pinSvg=true`, `zoomAnimation=false`.
+- Browser runtime proof Figma: `figmaNode=1715:3527`, `variants=["overview","zoom"]`, `rows=1200`, `plotted=1200`, `clusters=38`, `renderer=figma-map-zoom-in-canvas`.
+- Proof screenshoty:
+  - `.local-lab/proof/lsn-map-2026-06-30/01-new-svg-pins.png`
+  - `.local-lab/proof/lsn-map-2026-06-30/02-new-svg-flags.png`
+  - `.local-lab/proof/lsn-map-2026-06-30/03-new-svg-heatmap.png`
+  - `.local-lab/proof/lsn-map-2026-06-30/04-new-svg-heat-pins.png`
+  - `.local-lab/proof/lsn-map-2026-06-30/05-figma-map-component.png`
+- `02-new-svg-flags.png`, `03-new-svg-heatmap.png`, `04-new-svg-heat-pins.png`, `05-figma-map-component.png` obejrzane przez `view_image`.
+
+Ograniczenia walidacji:
+
+- W tej sesji `.venv` nie istnieje, a globalny `python3` nie ma `pandas`, więc pełne `make prototype`, `make test`, `make lint` nie było odpalane po zmianie assetów.
+- Sprawdzony został standalone renderer, który nie wymaga pandas, bo korzysta z istniejącego `data/output/clients_geocoded.csv`.
+- Próba zapisu screenshotów na `C:\Users\krnij\Desktop` przez `/mnt/c` zwróciła `Permission denied`; proof zapisano pod `.local-lab`.
+
 Repo classification przed cleanupem:
 
 | Kategoria | Pliki / katalogi | Decyzja |
@@ -157,7 +218,7 @@ Wniosek praktyczny:
 
 | Opcja | Zastosowanie | Plusy | Minusy | Rekomendacja |
 | --- | --- | --- | --- | --- |
-| Leaflet + `CRS.Simple` + image overlay | Mapa klienta z Exact Points/Regions/Badges/Heat/Hybrid | Najlepiej pasuje do briefu, proste, bez build stepu, zoom/fullscreen łatwe | Exact Points na artworku są diagnostyczne, nie GIS | Pierwszy rekomendowany deliverable |
+| Leaflet + `CRS.Simple` + image overlay | Mapa klienta z Pins/Regions/Flags/Heat/Heat + Pins | Najlepiej pasuje do briefu, proste, bez build stepu, zoom/fullscreen łatwe | Punkty/piny na artworku są diagnostyczne, nie GIS | Pierwszy rekomendowany deliverable |
 | MapLibre GL JS + GeoJSON | Prawdziwy dashboard geograficzny | Dokładna geografia, natywne heatmapy/klastry, dobra wydajność | Nie używa wyglądu mapy klienta | Zachować jako wariant porównawczy |
 | Statyczny SVG/obraz | Screenshot do decka/sprzedaży | Szybkie i kontrolowane | Brak zoomu/fullscreen/interakcji | Tylko jako eksport screenshotów |
 | React/WordPress block teraz | Finalna integracja strony | Reużywalne produkcyjnie | Za wcześnie przed decyzją designową | Odłożyć |
@@ -169,12 +230,15 @@ Zbudowany jest jeden powtarzalny generator statycznego HTML:
 
 - `src/render_lsn_map_options.py`,
 - wejście: `clients_geocoded.csv` albo bezpośredni output pipeline,
-- asset: `data/assets/client-map/north-america-map-ai-web.png`,
+- asset: domyślnie `data/assets/client-map/new-na-map.svg`,
+- pin: domyślnie `data/assets/client-map/pin-na-map.svg`,
 - output: `data/output/lsn-map-options.html`,
+- Figma output: `data/output/lsn-map-figma.html`,
 - bez npm i bundlera,
 - zależności z CDN przypięte wersją,
-- tryby w jednym UI: Exact Points, Regions, Badges, Heatmap, Heat + Points,
+- tryby w jednym UI: Pins, Regions, Flags, Heatmap, Heat + Pins,
 - regionalne agregaty są rysowane jednym canvas layerem; nie ma 1200 markerów DOM,
+- piny są rysowane na canvasie z SVG klienta; nie ma 1200 markerów DOM,
 - heatmapa jest liczona z agregatów regionalnych, nie z pseudo-losowych punktów,
 - przyciski fullscreen i fit,
 - panel status/country summary,
@@ -204,7 +268,8 @@ Kod ma teraz jawny przełącznik `--reference-mode auto|mock|parquet|synthetic`.
 Dostarczona mapa jest ilustracją. Aktualny prototyp używa deterministycznych anchorów regionalnych:
 
 - grupować rekordy po `service_region` i kraju,
-- rysować czytelne bubbles/badges/heat na anchorach regionów,
+- rysować czytelne bubbles/heat na anchorach regionów,
+- rysować piny/flagi jako exact marker variants, ale traktować to jako visual comparison na artworku, nie GIS proof,
 - trzymać anchory w source jako named constants,
 - w proof/handoff zaznaczać, że to overlay prezentacyjny, nie geodezyjna basemapa.
 
@@ -229,14 +294,15 @@ Przed dalszą implementacją ten backlog jest source of truth. Statusy aktualizo
 | D-02 | Data/pipeline | Dodać testy dla nowego trybu referencji | done | Test pokrywa mock mode i auto/parquet behavior bez zależności od lokalnego parquetu | `tests/test_pipeline.py`, 11 passed |
 | D-03 | Data/pipeline | Rozstrzygnąć `pyright` jako gate albo residual risk | done | Pyright przechodzi albo dokumentuje się świadomy residual risk | `make typecheck` fail 16 errors; residual risk zapisany |
 | M-01 | Renderer | Dodać powtarzalny renderer mapy klienta | done | `data/output/lsn-map-options.html` powstaje z komendy, nie ręcznie | `src/render_lsn_map_options.py`, `make prototype` |
-| M-02 | Renderer | Zaimplementować tryby Regions/Badges/Heat/Hybrid | done | UI pozwala przełączać wszystkie cztery tryby | browser proof screenshots |
+| M-02 | Renderer | Zaimplementować tryby Regions/Flags/Heat/Hybrid | done | UI pozwala przełączać wszystkie tryby | browser proof screenshots |
 | M-03 | Renderer | Utrwalić transform lon/lat -> image space jako named constants | done | Transform jest w source, nie w ręcznie edytowanym HTML | `src/render_lsn_map_options.py` `projection` constants |
 | M-04 | Renderer | Dodać fit/fullscreen i panel summary | done | Fit/fullscreen działają na desktopie; panel pokazuje liczbę rekordów/statusy | browser proof i UI controls |
+| M-05 | Renderer | Dodać Figma `Map Zoom-In` component renderer | done | `lsn-map-figma.html` pokazuje overview i zoom crop zgodnie z node `1715:3527` | `make map-figma`, `05-figma-map-component.png` |
 | Q-01 | Visual QA | Wygenerować proof 1920x1080 i 1440x900 | done | Screenshoty pokazują nieblank mapę i controls | `.local-lab/proof/lsn-map/*.png` |
-| Q-02 | Visual QA | Sprawdzić tryby Regions, Badges, Heatmap, Hybrid | done | Każdy tryb ma screenshot albo jednoznaczny proof | proof ledger poniżej |
+| Q-02 | Visual QA | Sprawdzić tryby Regions, Flags, Heatmap, Hybrid | done | Każdy tryb ma screenshot albo jednoznaczny proof | proof ledger poniżej |
 | DOC-01 | Dokumentacja | Utrzymać `GOAL.md`, `AGENTS.md`, plan doc jako spójny system | done | Dokumenty nie mają sprzecznego next action/statusu | `AGENTS.md`, ten dokument |
 | DOC-02 | Dokumentacja | README zaktualizowany dopiero po realnym flow | done | README commands działają lokalnie | `README.md`, `make prototype` |
-| REC-01 | Klient | Przygotować finalną rekomendację wariantów | done | Krótki tekst: Regions, Badges, Heatmap, Hybrid, MapLibre/GCP vs artwork | sekcja `Finalna rekomendacja` |
+| REC-01 | Klient | Przygotować finalną rekomendację wariantów | done | Krótki tekst: Regions, Flags, Heatmap, Hybrid, MapLibre/GCP vs artwork | sekcja `Finalna rekomendacja` |
 
 Explicit out-of-scope do czasu decyzji klienta:
 
@@ -257,7 +323,7 @@ Deliverables:
 Acceptance:
 
 - wygenerowany HTML otwiera się bezpośrednio w przeglądarce,
-- zawiera Exact Points, Regions, Badges, Heatmap i Heat + Points,
+- zawiera Pins, Regions, Flags, Heatmap i Heat + Pins,
 - używa dostarczonej mapy klienta,
 - osadza dokładnie wiersze z wybranego źródła danych,
 - nie wymaga ręcznej edycji wygenerowanego HTML.
@@ -281,7 +347,7 @@ Acceptance:
 Deliverables:
 
 - screenshoty 1920x1080 i 1440x900,
-- po jednym screenshocie per tryb albo minimum Regions + Badges + Heat + Hybrid,
+- po jednym screenshocie per tryb albo minimum Regions + Flags + Heat + Hybrid,
 - krótki opis dla klienta, co pokazuje każdy tryb.
 
 Acceptance:
@@ -296,9 +362,9 @@ Acceptance:
 Treść rekomendacji:
 
 - Regions są najlepszym domyślnym wariantem na dostarczonym artworku: czytelne i uczciwe wobec braku georeferencji.
-- Badges są przydatne, jeśli kraj/liczba mają być bardzo czytelne, ale są mniej mapowe niż bubbles.
+- Flags są przydatne, jeśli kraj/liczba mają być bardzo czytelne, ale są mniej mapowe niż bubbles.
 - Heatmapa jest najlepsza do strategicznej gęstości, nie do exact lookupu klienta.
-- Heat + Points dobrze działa jako stakeholder demo, ale może sugerować precyzję, której artwork nie ma.
+- Heat + Pins dobrze działa jako stakeholder demo, ale może sugerować precyzję, której artwork nie ma.
 - Jeśli chcą precyzyjną mapę operacyjną, użyć MapLibre real geography. Jeśli chcą exact punkty na tym artworku, wykonać GCP/georeferencję. Jeśli chcą branded sekcję, użyć Leaflet artwork prototype.
 
 ### Slice 5 - Integracja później
@@ -324,15 +390,21 @@ Artefakty proof są lokalne i gitignored, bo to wynik QA, nie source code:
 | `.local-lab/proof/lsn-map/heat-regions-1920x1080.png` | Heatmapa działa na agregatach regionalnych na tym samym artworku. |
 | `.local-lab/proof/lsn-map/hybrid-regions-1920x1080.png` | Historyczny proof dawnego hybrydowego wariantu przed dodaniem obecnego Heat + Points. |
 | `.local-lab/proof/lsn-map/regions-bubbles-1440x900.png` | Desktop 1440x900 zachowuje czytelne controls, panel i mapę po resize/fitu. |
+| `.local-lab/proof/lsn-map-2026-06-30/01-new-svg-pins.png` | Nowy SVG mapy klienta z pinami z `Pin_NA_Map.svg`, canvas renderer, bez DOM markerów. |
+| `.local-lab/proof/lsn-map-2026-06-30/02-new-svg-flags.png` | Nowy SVG mapy klienta z exact flag markers rysowanymi na canvasie. |
+| `.local-lab/proof/lsn-map-2026-06-30/03-new-svg-heatmap.png` | Nowy SVG mapy klienta z heatmapą agregatów regionalnych. |
+| `.local-lab/proof/lsn-map-2026-06-30/04-new-svg-heat-pins.png` | Nowy SVG mapy klienta z heatmapą i pinami w jednym widoku. |
+| `.local-lab/proof/lsn-map-2026-06-30/05-figma-map-component.png` | Implementacja Figma node `1715:3527`: overview + zoom crop, dynamiczne punkty i klastry z CSV. |
 
 Proof był oglądany ręcznie przez `view_image` dla Exact Points na artworku i GIS oraz wcześniej dla Regions, Badges, Heat, Hybrid i 1440x900.
 
 ## Finalna rekomendacja
 
 - Regions są najlepszym domyślnym wariantem do rozmowy z klientem na dostarczonym artworku: są czytelne i nie udają dokładności pojedynczych adresów.
-- Badges są dobre do szybkiego porównania krajów/liczb, ale są bardziej dashboardowe niż mapowe.
+- Flags są dobre do szybkiego porównania krajów/liczb, ale są bardziej dashboardowe niż mapowe.
 - Heatmapa najlepiej pokazuje strategiczną gęstość, ale nie nadaje się do dokładnego lookupu konkretnego deploymentu.
-- Heat + Points jest mocne jako stakeholder demo, ale w finalnej sekcji trzeba jasno traktować je jako overview, nie proof geodezyjny.
+- Heat + Pins jest mocne jako stakeholder demo, ale w finalnej sekcji trzeba jasno traktować je jako overview, nie proof geodezyjny.
+- Nowy SVG z paczki klienta jest najlepszym branded assetem do dalszej prezentacji, ale nie zmienia rekomendacji technicznej: exact lon/lat wymaga GIS albo georeferencji.
 - Jeśli klient chce branded sekcję na swojej mapie, zostać przy Leaflet + artwork.
 - Jeśli klient chce precyzyjną mapę operacyjną, wrócić do MapLibre real geography.
 - Jeśli klient koniecznie chce precyzyjne punkty na tej ilustracji, zrobić georeferencję przez GCP/control points i walidację holdout landmarków.
@@ -340,7 +412,7 @@ Proof był oglądany ręcznie przez `view_image` dla Exact Points na artworku i 
 ## Znane ryzyka
 
 - `data/output/lsn-map-options.html` jest ignorowanym artefaktem, ale jest powtarzalny przez `make prototype`; źródłem prawdy jest `src/render_lsn_map_options.py`.
-- Artwork nie jest geodezyjną basemapą GIS. Tryb Exact Points na artworku jest diagnostycznym rzutem lon/lat na ilustrację, a regionalne tryby celowo używają anchorów.
+- Artwork nie jest geodezyjną basemapą GIS. Tryb Pins na artworku jest diagnostycznym rzutem/overview na ilustrację, a regionalne tryby celowo używają anchorów.
 - Heatmapa na ilustracji może sugerować precyzję, której artwork nie ma.
 - `make typecheck` / `pyright` nadal failuje 16 błędami typowania pandas/GeoPandas. Runtime gate'y `make test`, `make lint` i `make prototype` przechodzą.
 - W sprawdzonym stanie repo nie ma realnego Excela klienta.

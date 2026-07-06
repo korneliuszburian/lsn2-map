@@ -1,5 +1,27 @@
 # /goal - domknąć LSN map end-to-end, najpierw plan i cleanup, potem implementacja
 
+## Status wykonania - 2026-06-30
+
+Goal pozostaje wykonany jako prototyp porównawczy, a bieżący WIP aktualizuje branded mapę po otrzymaniu `NA_Map_Assets (1).zip`.
+
+Potwierdzone w bieżącej sesji:
+
+- nowy asset `NEW NA MAP.svg` został przeniesiony do `data/assets/client-map/new-na-map.svg`;
+- nowy asset `Pin_NA_Map.svg` został przeniesiony do `data/assets/client-map/pin-na-map.svg`;
+- renderer obsługuje teraz SVG/PNG mapy i osobny asset pina;
+- aktualny UI branded prototype ma tryby `Pins`, `Regions`, `Flags`, `Heatmap`, `Heat + Pins`;
+- `Pins` i `Heat + Pins` używają canvasowego rysowania pina SVG, nie DOM markerów;
+- `Flags` są teraz canvasowymi exact flag markers, a nie prostymi badge'ami;
+- dodano osobny renderer `src/render_lsn_figma_map.py` dla Figma node `1715:3527` (`Map Zoom-In`);
+- `make map-figma` generuje `data/output/lsn-map-figma.html` z dwoma wariantami `Default`/`Variant2`;
+- standalone renderer przeszedł `python3 -m py_compile src/render_lsn_map_options.py`;
+- standalone renderer wygenerował `data/output/lsn-map-options.html` z `new-na-map.svg` i `pin-na-map.svg`;
+- browser proof pokazuje `rows=1200`, `plotted=1200`, `markerIcons=0`, `markerCanvas=1`;
+- Figma browser proof pokazuje `figmaNode=1715:3527`, `variants=["overview","zoom"]`, `rows=1200`, `plotted=1200`, `clusters=38`;
+- proof screenshoty są w `.local-lab/proof/lsn-map-2026-06-30/`.
+
+Ograniczenie: w tej sesji `.venv` nie istnieje, więc pełne `make prototype/test/lint` trzeba odpalić dopiero po odtworzeniu środowiska. Techniczna rekomendacja się nie zmienia: nowy SVG jest lepszym artworkiem, ale bez CRS/georeferencji nie daje produkcyjnie dokładnych lon/lat.
+
 ## Status wykonania - 2026-06-19
 
 Goal wykonany jako prototyp porównawczy i handoff repo.
@@ -9,7 +31,7 @@ Potwierdzone:
 - `make prototype` regeneruje demo pipeline i `data/output/lsn-map-options.html`;
 - demo/mock pipeline daje `1200/1200` matched i `0` exceptions;
 - real/parquet sample zachowuje uczciwy wynik `702/1200`, `58.5%`, z warningiem poniżej 98%;
-- renderer ma tryby `Exact Points`, `Regions`, `Badges`, `Heatmap`, `Heat + Points`, fit i fullscreen;
+- renderer miał wtedy tryby `Exact Points`, `Regions`, `Badges`, `Heatmap`, `Heat + Points`, fit i fullscreen; bieżący UI z 2026-06-30 to `Pins`, `Regions`, `Flags`, `Heatmap`, `Heat + Pins`;
 - renderer po feedbacku używa canvas exact-points i regionalnych agregatów, nie 1200 markerów DOM;
 - browser proof: `.local-lab/proof/lsn-map/runtime-proof-exact-points.txt` pokazuje `active=Exact Points`, `rows=1200`, `plotted=1200`, `pointPlacement.lonLatLinear=1200`, `pointPlacement.clamped=0`, `markerIcons=0`;
 - screenshoty proof są w `.local-lab/proof/lsn-map/`;
@@ -28,7 +50,7 @@ Aktualne źródła prawdy:
 
 ## Cel główny
 
-Dokończyć zadanie LSN map end-to-end: przygotować klientowi powtarzalny, zweryfikowany prototyp mapy North America / LSN z wariantami Exact Points, Regions, Badges, Heatmap, Heat + Points, zoom i fullscreen, a następnie zostawić repo w stanie uporządkowanym, z jasną dokumentacją i bez przypadkowych artefaktów.
+Dokończyć zadanie LSN map end-to-end: przygotować klientowi powtarzalny, zweryfikowany prototyp mapy North America / LSN z wariantami Pins, Regions, Flags, Heatmap, Heat + Pins, zoom i fullscreen, a następnie zostawić repo w stanie uporządkowanym, z jasną dokumentacją i bez przypadkowych artefaktów.
 
 Nie zaczynaj dalszej implementacji, dopóki nie wykonasz pełnego rozpoznania aktualnego stanu, nie rozpiszesz backlogu i nie uporządkujesz repo.
 
@@ -160,9 +182,11 @@ Dodać `src/render_lsn_map_options.py` albo równoważny moduł.
 Renderer ma:
 
 - czytać jawny input CSV/GeoJSON;
-- używać `data/assets/client-map/north-america-map-ai-web.png`;
+- używać domyślnie `data/assets/client-map/new-na-map.svg`, z możliwością podmiany na PNG/SVG przez `--map-image`;
+- używać `data/assets/client-map/pin-na-map.svg` przez `--pin-image`;
 - generować `data/output/lsn-map-options.html`;
-- mieć tryby Exact Points, Regions, Badges, Heatmap, Heat + Points;
+- mieć tryby Pins, Regions, Flags, Heatmap, Heat + Pins;
+- mieć osobny Figma renderer `data/output/lsn-map-figma.html` dla komponentu `Map Zoom-In`, jeśli targetem jest aktualny design z Figmy;
 - mieć fit i fullscreen;
 - mieć panel summary;
 - trzymać transform lon/lat -> image space w kodzie;
@@ -187,7 +211,7 @@ Po wygenerowaniu prototypu:
 
 - sprawdź go w browserze;
 - zrób screenshoty 1920x1080 i 1440x900;
-- sprawdź tryby Regions, Badges, Heatmap, Hybrid;
+- sprawdź tryby Regions, Flags, Heatmap, Hybrid;
 - sprawdź fit i fullscreen;
 - zapisz proof w jednym katalogu;
 - opisz, który proof potwierdza które kryterium.
@@ -197,9 +221,9 @@ Po wygenerowaniu prototypu:
 Przygotuj krótką rekomendację:
 
 - Regions: najlepsze do branded overview na niereferencjonowanym artworku;
-- Badges: dobre do czytelnej liczby/kraju, ale bardziej dashboardowe;
+- Flags: dobre do czytelnej liczby/kraju, ale bardziej dashboardowe;
 - heatmapa: dobra do strategicznej gęstości, nie exact lookupu;
-- Heat + Points: dobre do demo, ale nadal overview, nie GIS;
+- Heat + Pins: dobre do demo, ale nadal overview, nie GIS;
 - MapLibre: lepsze, jeśli klient chce precyzyjną mapę operacyjną;
 - Leaflet + artwork: lepsze, jeśli klient chce branded sekcję na swojej mapie.
 - GCP/georeferencja: potrzebne, jeśli klient chce precyzyjne punkty na tej konkretnej ilustracji.

@@ -103,7 +103,7 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 ## 4. Bieżący stan repo (2026-07-06)
 
 - Gałąź `main`.
-- Ostatni commit lokalny/na `origin/main` po tej rundzie dotyczy poprawy GIS renderer + dodania trybu `Flags`.
+- Ostatni commit lokalny/na `origin/main` po tej rundzie: **`6408125 feat: enrich GIS renderer styling with flags mode`**.
 - Wszystkie źródła i assety są commitowane i wypchnięte.
 - Aktualny stan roboczy po komicie: czysty (poza ignorowanymi artefaktami: `.venv/`, `data/output/`, `data/reference/*.parquet`, `.local-lab/`).
 - W tej sesji zaktualizowano `src/render_lsn_geographic_map.py`:

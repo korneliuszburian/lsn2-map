@@ -22,16 +22,25 @@ from shapely.ops import nearest_points, transform, unary_union
 DEFAULT_INPUT = "data/output/clients_geocoded.csv"
 DEFAULT_OUTPUT = "data/output/lsn-map-final.html"
 DEFAULT_BASEMAP_OUTPUT = "data/output/lsn-north-america-final.svg"
+DEFAULT_HAWAII_BASEMAP_OUTPUT = "data/output/lsn-north-america-final-hawaii.svg"
 DEFAULT_CACHE_DIR = "data/reference"
 DEFAULT_PIN_IMAGE = "data/assets/client-map/pin-na-map.svg"
 
 WIDTH = 1731
 HEIGHT = 1800
+HAWAII_WIDTH = 380
+HAWAII_HEIGHT = 300
 PADDING_X = 105
-PADDING_Y = 70
+PADDING_Y = 130
+HAWAII_PADDING_X = 16
+HAWAII_PADDING_Y = 16
+HAWAII_DISPLAY_X = 330
+HAWAII_DISPLAY_Y = 1415
+HAWAII_DISPLAY_SCALE = 0.50
 BACKGROUND_COLOR = "#ffffff"
 LAND_FILL = "#d2d3d4"
-COUNTRIES = ("US", "CA", "MX")
+DATA_COUNTRIES = ("US", "CA", "MX")
+BASEMAP_COUNTRIES = ("US", "CA", "MX", "CU", "PR", "HT", "DO", "JM", "BS")
 OUTLINE_COLOR = "rgba(255,255,255,.95)"
 SUBDIVISION_COLOR = "rgba(255,255,255,.85)"
 GRID_COLOR = "rgba(255,255,255,.12)"
@@ -45,8 +54,41 @@ PROJECTION = (
 
 SOURCES = {
     "admin0": "https://naturalearth.s3.amazonaws.com/50m_cultural/ne_50m_admin_0_countries.zip",
-    "admin1": "https://naturalearth.s3.amazonaws.com/50m_cultural/ne_50m_admin_1_states_provinces.zip",
+    "admin1": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip",
 }
+
+MAIN_VIEWPORT_EXTENT_LON_LAT = (-170.0, 9.0, -50.0, 84.0)
+HAWAII_VIEWPORT_EXTENT_LON_LAT = (-163.0, 17.8, -154.0, 24.2)
+HAWAII_EXCLUDE_EXTENT_LON_LAT = (-163.4, 17.2, -153.4, 24.8)
+
+HAWAII_REGION = {
+    "min_lon": -161.0,
+    "max_lon": -154.0,
+    "min_lat": 18.0,
+    "max_lat": 23.8,
+}
+CARIBBEAN_REGION = {
+    "min_lon": -90.0,
+    "max_lon": -58.0,
+    "min_lat": 14.8,
+    "max_lat": 26.5,
+}
+
+
+def _is_in_region(value: float, min_value: float, max_value: float) -> bool:
+    return min_value <= value <= max_value
+
+
+def classify_map_region(lon: float, lat: float) -> str:
+    if _is_in_region(lon, HAWAII_REGION["min_lon"], HAWAII_REGION["max_lon"]) and _is_in_region(
+        lat, HAWAII_REGION["min_lat"], HAWAII_REGION["max_lat"]
+    ):
+        return "hawaii"
+    if _is_in_region(lon, CARIBBEAN_REGION["min_lon"], CARIBBEAN_REGION["max_lon"]) and _is_in_region(
+        lat, CARIBBEAN_REGION["min_lat"], CARIBBEAN_REGION["max_lat"]
+    ):
+        return "caribbean"
+    return "mainland"
 
 
 def read_deployments(path: Path) -> list[dict[str, Any]]:
@@ -69,6 +111,7 @@ def read_deployments(path: Path) -> list[dict[str, Any]]:
                     "model": row.get("generator_model", ""),
                     "status": row.get("install_status", ""),
                     "region": row.get("service_region", ""),
+                    "map_region": classify_map_region(lon, lat),
                     "manager": row.get("account_manager", ""),
                     "date": row.get("install_date", ""),
                 }
@@ -85,6 +128,7 @@ def render_html(
     input_path: Path,
     cache_dir: Path,
     basemap_output: Path,
+    hawaii_basemap_output: Path,
     pin_image: Path,
     title: str,
     grid_spacing: float,
@@ -94,15 +138,38 @@ def render_html(
     if not deployments:
         raise ValueError(f"No geocoded deployments found in {input_path}")
 
-    admin0, admin1 = load_boundaries(cache_dir)
     transformer = Transformer.from_crs("EPSG:4326", PROJECTION, always_xy=True)
-    projected_admin0 = [(cc, project_geometry(geom, transformer)) for cc, geom in admin0]
-    projected_admin1 = [(cc, project_geometry(geom, transformer)) for cc, geom in admin1]
+    admin0, admin1 = load_boundaries(cache_dir)
+
+    main_extent = projected_extent_box(transformer, *MAIN_VIEWPORT_EXTENT_LON_LAT)
+    hawaii_extent = projected_extent_box(transformer, *HAWAII_VIEWPORT_EXTENT_LON_LAT)
+    hawaii_cutout = projected_extent_box(transformer, *HAWAII_EXCLUDE_EXTENT_LON_LAT)
+
+    projected_admin0 = project_boundaries(admin0, transformer, main_extent, cutout=hawaii_cutout, simplify_m=2_500)
+    projected_admin1 = project_boundaries(admin1, transformer, main_extent, cutout=hawaii_cutout, simplify_m=900)
+    hawaii_admin0 = project_boundaries(admin0, transformer, hawaii_extent, simplify_m=1_200)
+    hawaii_admin1 = project_boundaries(admin1, transformer, hawaii_extent, simplify_m=600)
+
     projected_union = unary_union([geom for _, geom in projected_admin0])
+    hawaii_projected_union = unary_union([geom for _, geom in hawaii_admin0]) if hawaii_admin0 else None
     display_union = projected_union.buffer(-12_000)
     if display_union.is_empty:
         display_union = projected_union
-    viewport = build_viewport([geom for _, geom in projected_admin0])
+    hawaii_display_union: BaseGeometry
+    if hawaii_projected_union:
+        hawaii_display_union = hawaii_projected_union.buffer(-4_000)
+        if hawaii_display_union.is_empty:
+            hawaii_display_union = hawaii_projected_union
+    else:
+        hawaii_display_union = None
+
+    viewport = build_viewport([geom for _, geom in projected_admin0], WIDTH, HEIGHT)
+    hawaii_viewport = (
+        build_viewport([geom for _, geom in hawaii_admin0], HAWAII_WIDTH, HAWAII_HEIGHT, HAWAII_PADDING_X, HAWAII_PADDING_Y)
+        if hawaii_admin0
+        else None
+    )
+
     basemap_svg = render_basemap_svg(
         projected_admin0,
         projected_admin1,
@@ -111,24 +178,73 @@ def render_html(
         transformer,
         grid_spacing=grid_spacing,
         show_grid=show_grid,
+        width=WIDTH,
+        height=HEIGHT,
     )
+
+    hawaii_basemap_svg = ""
+    if hawaii_admin0 and hawaii_viewport is not None:
+        hawaii_basemap_svg = render_basemap_svg(
+            hawaii_admin0,
+            hawaii_admin1,
+            hawaii_viewport,
+            hawaii_projected_union,
+            transformer,
+            grid_spacing=0,
+            show_grid=False,
+            width=HAWAII_WIDTH,
+            height=HAWAII_HEIGHT,
+        )
+        basemap_svg = inject_hawaii_display_inset(basemap_svg, hawaii_basemap_svg)
+        write_text(hawaii_basemap_svg, hawaii_basemap_output)
+    else:
+        write_text(basemap_svg, hawaii_basemap_output)
     write_text(basemap_svg, basemap_output)
 
-    projected_deployments = project_deployments(deployments, transformer, viewport, projected_union, display_union)
+    main_deployments = [d for d in deployments if d.get("map_region") != "hawaii"]
+    hawaii_deployments = [d for d in deployments if d.get("map_region") == "hawaii"]
+
+    projected_deployments = project_deployments(
+        main_deployments,
+        transformer,
+        viewport,
+        projected_union,
+        display_union,
+    )
+    projected_hawaii_deployments = project_deployments(
+        hawaii_deployments,
+        transformer,
+        hawaii_viewport or viewport,
+        hawaii_projected_union or projected_union,
+        hawaii_display_union or display_union,
+        width=HAWAII_WIDTH,
+        height=HAWAII_HEIGHT,
+    ) if hawaii_viewport else []
+    projected_hawaii_deployments = relocate_hawaii_deployments(projected_hawaii_deployments)
     basemap_data = "data:image/svg+xml;base64," + base64.b64encode(basemap_svg.encode("utf-8")).decode("ascii")
+    hawaii_basemap_data = (
+        "data:image/svg+xml;base64," + base64.b64encode(hawaii_basemap_svg.encode("utf-8")).decode("ascii")
+        if hawaii_basemap_svg
+        else basemap_data
+    )
     pin_data = image_data_uri(pin_image)
     generated_at = datetime.now(timezone.utc).isoformat()
 
     replacements = {
         "__TITLE__": title,
-        "__DEPLOYMENTS_JSON__": json.dumps(projected_deployments, ensure_ascii=True, separators=(",", ":")),
+        "__MAIN_DEPLOYMENTS_JSON__": json.dumps(projected_deployments, ensure_ascii=True, separators=(",", ":")),
+        "__HAWAII_DEPLOYMENTS_JSON__": json.dumps(projected_hawaii_deployments, ensure_ascii=True, separators=(",", ":")),
         "__MAP_IMAGE__": basemap_data,
+        "__HAWAII_MAP_IMAGE__": hawaii_basemap_data,
         "__PIN_IMAGE__": pin_data,
         "__IMAGE_WIDTH__": str(WIDTH),
         "__IMAGE_HEIGHT__": str(HEIGHT),
+        "__HAWAII_IMAGE_WIDTH__": str(HAWAII_WIDTH),
+        "__HAWAII_IMAGE_HEIGHT__": str(HAWAII_HEIGHT),
         "__GENERATED_AT__": generated_at,
         "__SOURCE_CSV__": str(input_path),
         "__BASEMAP_SVG__": str(basemap_output),
+        "__HAWAII_BASEMAP_SVG__": str(hawaii_basemap_output),
         "__SOURCE_PIN__": str(pin_image),
         "__PIN_IS_SVG__": json.dumps(pin_image.suffix.lower() == ".svg"),
         "__PROJECTION__": PROJECTION_NAME,
@@ -142,7 +258,7 @@ def render_html(
 def load_boundaries(cache_dir: Path) -> tuple[list[tuple[str, BaseGeometry]], list[tuple[str, BaseGeometry]]]:
     cache_dir.mkdir(parents=True, exist_ok=True)
     admin0_zip = download(SOURCES["admin0"], cache_dir / "ne_50m_admin_0_countries.zip")
-    admin1_zip = download(SOURCES["admin1"], cache_dir / "ne_50m_admin_1_states_provinces.zip")
+    admin1_zip = download(SOURCES["admin1"], cache_dir / "ne_10m_admin_1_states_provinces.zip")
 
     admin0_gdf = gpd.read_file(admin0_zip)
     admin1_gdf = gpd.read_file(admin1_zip)
@@ -150,20 +266,16 @@ def load_boundaries(cache_dir: Path) -> tuple[list[tuple[str, BaseGeometry]], li
     admin0_rows: list[tuple[str, BaseGeometry]] = []
     for _, row in admin0_gdf.iterrows():
         cc = country_code(row)
-        if cc not in COUNTRIES:
+        if cc not in BASEMAP_COUNTRIES:
             continue
-        geom = filter_operational_geometry(row.geometry)
-        if not geom.is_empty:
-            admin0_rows.append((cc, geom))
+        admin0_rows.append((cc, row.geometry))
 
     admin1_rows: list[tuple[str, BaseGeometry]] = []
     for _, row in admin1_gdf.iterrows():
         cc = country_code(row)
-        if cc not in COUNTRIES:
+        if cc not in DATA_COUNTRIES:
             continue
-        geom = filter_operational_geometry(row.geometry)
-        if not geom.is_empty:
-            admin1_rows.append((cc, geom))
+        admin1_rows.append((cc, row.geometry))
 
     if not admin0_rows:
         raise ValueError("Natural Earth admin0 selection returned no geometries")
@@ -180,6 +292,54 @@ def download(url: str, dest: Path) -> Path:
     return dest
 
 
+def projected_extent_box(
+    transformer: Transformer,
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
+) -> BaseGeometry:
+    edge_points: list[tuple[float, float]] = []
+    steps = 96
+    for i in range(steps + 1):
+        t = i / steps
+        lon = lon_min + (lon_max - lon_min) * t
+        lat = lat_min + (lat_max - lat_min) * t
+        edge_points.append((lon, lat_min))
+        edge_points.append((lon, lat_max))
+        edge_points.append((lon_min, lat))
+        edge_points.append((lon_max, lat))
+    projected_points = [transformer.transform(lon, lat) for lon, lat in edge_points]
+    xs = [p[0] for p in projected_points]
+    ys = [p[1] for p in projected_points]
+    return box(min(xs), min(ys), max(xs), max(ys))
+
+
+def project_boundaries(
+    rows: list[tuple[str, BaseGeometry]],
+    transformer: Transformer,
+    extent_box: BaseGeometry,
+    cutout: BaseGeometry | None = None,
+    simplify_m: float = 5_000,
+    simplify_preserve: bool = True,
+) -> list[tuple[str, BaseGeometry]]:
+    out: list[tuple[str, BaseGeometry]] = []
+    for cc, geom in rows:
+        if geom.is_empty:
+            continue
+        projected = project_geometry(geom, transformer)
+        clipped = projected.intersection(extent_box)
+        if cutout is not None:
+            clipped = clipped.difference(cutout)
+        if clipped.is_empty:
+            continue
+        simplified = clipped.simplify(simplify_m, preserve_topology=simplify_preserve)
+        if simplified.is_empty:
+            continue
+        out.append((cc, simplified))
+    return out
+
+
 def country_code(row: Any) -> str:
     for key in ("ISO_A2", "iso_a2", "adm0_a3", "ADM0_A3"):
         value = row.get(key)
@@ -189,6 +349,18 @@ def country_code(row: Any) -> str:
             return "CA"
         if value in ("MX", "MEX"):
             return "MX"
+        if value in ("CU", "CUB"):
+            return "CU"
+        if value in ("PR", "PRI"):
+            return "PR"
+        if value in ("HT", "HTI"):
+            return "HT"
+        if value in ("DO", "DOM"):
+            return "DO"
+        if value in ("JM", "JAM"):
+            return "JM"
+        if value in ("BS", "BHS"):
+            return "BS"
     name = str(
         row.get("admin")
         or row.get("ADMIN")
@@ -202,33 +374,19 @@ def country_code(row: Any) -> str:
         return "CA"
     if name == "Mexico":
         return "MX"
+    if name == "Cuba":
+        return "CU"
+    if name == "Puerto Rico":
+        return "PR"
+    if name == "Haiti":
+        return "HT"
+    if name == "Dominican Republic":
+        return "DO"
+    if name == "Jamaica":
+        return "JM"
+    if name == "Bahamas":
+        return "BS"
     return ""
-
-
-def filter_operational_geometry(geom: BaseGeometry) -> BaseGeometry:
-    """Keep mainland North America and nearby extensions, but omit Hawaii."""
-    extent = box(-170, 14, -50, 84)
-
-    def keep_polygon(poly: Polygon) -> bool:
-        clipped = poly.intersection(extent)
-        if clipped.is_empty:
-            return False
-        p = clipped.representative_point()
-        if p.x < -140 and p.y < 45:
-            return False
-        return True
-
-    polygons: list[Polygon] = []
-    for poly in iter_polygons(geom):
-        if keep_polygon(poly):
-            clipped = poly.intersection(extent)
-            polygons.extend(iter_polygons(clipped))
-
-    if not polygons:
-        return GeometryCollection()
-    if len(polygons) == 1:
-        return polygons[0]
-    return MultiPolygon(polygons)
 
 
 def iter_polygons(geom: BaseGeometry) -> list[Polygon]:
@@ -250,13 +408,21 @@ def project_geometry(geom: BaseGeometry, transformer: Transformer) -> BaseGeomet
     return transform(transformer.transform, geom)
 
 
-def build_viewport(geometries: list[BaseGeometry]) -> dict[str, float]:
+def build_viewport(
+    geometries: list[BaseGeometry],
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    padding_x: int = PADDING_X,
+    padding_y: int = PADDING_Y,
+) -> dict[str, float]:
     minx, miny, maxx, maxy = unary_union(geometries).bounds
-    scale = min((WIDTH - PADDING_X * 2) / (maxx - minx), (HEIGHT - PADDING_Y * 2) / (maxy - miny))
+    if maxx == minx or maxy == miny:
+        raise ValueError("Projected geometry has zero extent; cannot build viewport")
+    scale = min((width - padding_x * 2) / (maxx - minx), (height - padding_y * 2) / (maxy - miny))
     rendered_width = (maxx - minx) * scale
     rendered_height = (maxy - miny) * scale
-    offset_x = (WIDTH - rendered_width) / 2 - minx * scale
-    offset_y = (HEIGHT - rendered_height) / 2 + maxy * scale
+    offset_x = (width - rendered_width) / 2 - minx * scale
+    offset_y = (height - rendered_height) / 2 + maxy * scale
     return {
         "minx": minx,
         "miny": miny,
@@ -280,21 +446,23 @@ def render_basemap_svg(
     transformer: Transformer,
     grid_spacing: float = GRID_SPACING_DEGREES,
     show_grid: bool = False,
+    width: int = WIDTH,
+    height: int = HEIGHT,
 ) -> str:
     country_paths: list[str] = []
     for _cc, geom in admin0:
-        path = geometry_to_path(geom.simplify(5_000, preserve_topology=True), viewport)
+        path = geometry_to_path(geom.simplify(1_800, preserve_topology=True), viewport)
         country_paths.append(
             f'<path class="country" d="{path}" fill="{LAND_FILL}" '
-            f'stroke="{OUTLINE_COLOR}" stroke-width="1.3" stroke-linejoin="round"/>'
+            f'stroke="{OUTLINE_COLOR}" stroke-width="0.75" stroke-linejoin="round"/>'
         )
 
     subdivision_paths: list[str] = []
     for _cc, geom in admin1:
-        path = geometry_to_path(geom.simplify(4_000, preserve_topology=True), viewport)
+        path = geometry_to_path(geom.simplify(600, preserve_topology=True), viewport)
         subdivision_paths.append(
             f'<path class="subdivision" d="{path}" fill="none" '
-            f'stroke="{SUBDIVISION_COLOR}" stroke-width="1.1" stroke-linejoin="round"/>'
+            f'stroke="{SUBDIVISION_COLOR}" stroke-width="0.55" stroke-linejoin="round"/>'
         )
 
     grid_paths: list[str] = []
@@ -310,8 +478,8 @@ def render_basemap_svg(
                 f'stroke="{GRID_COLOR}" stroke-width="{GRID_STROKE_WIDTH}" stroke-dasharray="4 7"/>'
             )
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}">
-  <rect width="{WIDTH}" height="{HEIGHT}" fill="{BACKGROUND_COLOR}"/>
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+  <rect width="{width}" height="{height}" fill="{BACKGROUND_COLOR}"/>
   <g id="countries">
     {''.join(country_paths)}
   </g>
@@ -323,6 +491,47 @@ def render_basemap_svg(
   </g>
 </svg>
 """
+
+
+def inject_hawaii_display_inset(main_svg: str, hawaii_svg: str) -> str:
+    inner = svg_inner_without_background(hawaii_svg)
+    if not inner:
+        return main_svg
+    inset = (
+        f'<g id="hawaii-display-inset" transform="translate({HAWAII_DISPLAY_X} {HAWAII_DISPLAY_Y}) '
+        f'scale({HAWAII_DISPLAY_SCALE})">\n{inner}\n  </g>'
+    )
+    return main_svg.replace("</svg>", f"  {inset}\n</svg>")
+
+
+def svg_inner_without_background(svg_text: str) -> str:
+    start = svg_text.find("<g id=\"countries\">")
+    end = svg_text.rfind("</svg>")
+    if start < 0 or end < 0 or end <= start:
+        return ""
+    return svg_text[start:end].strip()
+
+
+def relocate_hawaii_deployments(deployments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    relocated: list[dict[str, Any]] = []
+    for point in deployments:
+        x = _parse_float(str(point.get("x")))
+        y = _parse_float(str(point.get("y")))
+        raw_x = _parse_float(str(point.get("rawX")))
+        raw_y = _parse_float(str(point.get("rawY")))
+        if x is None or y is None:
+            continue
+        moved = {
+            **point,
+            "x": round(HAWAII_DISPLAY_X + x * HAWAII_DISPLAY_SCALE, 3),
+            "y": round(HAWAII_DISPLAY_Y + y * HAWAII_DISPLAY_SCALE, 3),
+            "displayRelocated": True,
+        }
+        if raw_x is not None and raw_y is not None:
+            moved["rawX"] = round(HAWAII_DISPLAY_X + raw_x * HAWAII_DISPLAY_SCALE, 3)
+            moved["rawY"] = round(HAWAII_DISPLAY_Y + raw_y * HAWAII_DISPLAY_SCALE, 3)
+        relocated.append(moved)
+    return relocated
 
 
 def build_grid_lines(
@@ -425,6 +634,8 @@ def project_deployments(
     viewport: dict[str, float],
     projected_union: BaseGeometry,
     display_union: BaseGeometry,
+    width: int = WIDTH,
+    height: int = HEIGHT,
 ) -> list[dict[str, Any]]:
     projected: list[dict[str, Any]] = []
     for d in deployments:
@@ -435,7 +646,7 @@ def project_deployments(
         display_point = nearest_points(display_union, raw_point)[0] if display_adjusted else raw_point
         sx, sy = to_svg_point(display_point.x, display_point.y, viewport)
         raw_sx, raw_sy = to_svg_point(px, py, viewport)
-        inside_viewport = 0 <= sx <= WIDTH and 0 <= sy <= HEIGHT
+        inside_viewport = 0 <= sx <= width and 0 <= sy <= height
         projected.append(
             {
                 **d,
@@ -443,7 +654,7 @@ def project_deployments(
                 "y": round(sy, 3),
                 "rawX": round(raw_sx, 3),
                 "rawY": round(raw_sy, 3),
-                "leafletY": round(HEIGHT - sy, 3),
+                "screenY": round(sy, 3),
                 "insideViewport": bool(inside_viewport),
                 "insideBasemap": bool(inside_basemap),
                 "displayAdjusted": bool(display_adjusted),
@@ -480,6 +691,11 @@ def main() -> None:
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
     parser.add_argument("--basemap-output", default=DEFAULT_BASEMAP_OUTPUT, help="Generated SVG basemap path")
+    parser.add_argument(
+        "--hawaii-basemap-output",
+        default=DEFAULT_HAWAII_BASEMAP_OUTPUT,
+        help="Generated SVG inset basemap for Hawaii",
+    )
     parser.add_argument("--pin-image", default=DEFAULT_PIN_IMAGE, help="Pin marker image used in Pins mode")
     parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR, help="Cache directory for Natural Earth zips")
     parser.add_argument("--grid-spacing", type=float, default=GRID_SPACING_DEGREES, help="Graticule spacing in degrees")
@@ -492,6 +708,7 @@ def main() -> None:
         Path(args.input),
         Path(args.cache_dir),
         Path(args.basemap_output),
+        Path(args.hawaii_basemap_output),
         Path(args.pin_image),
         args.title,
         grid_spacing=args.grid_spacing,
@@ -500,6 +717,7 @@ def main() -> None:
     write_text(html_text, Path(args.output))
     print(f"Rendered {args.output} from {args.input}")
     print(f"Generated basemap {args.basemap_output}")
+    print(f"Generated Hawaiian inset basemap {args.hawaii_basemap_output}")
 
 
 HTML_TEMPLATE = """<!doctype html>
@@ -508,435 +726,471 @@ HTML_TEMPLATE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>__TITLE__</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <style>
     :root {
       --bg: #ffffff;
-      --ink: #1e2c2a;
-      --muted: #5f6d66;
-      --line: rgba(30, 44, 42, .14);
-      --panel: rgba(255, 255, 255, .92);
-      --point-fill: #00875a;
-      --point-stroke: #005f48;
-      --hot-fill: rgba(47, 159, 98, 0.28);
-      --hot-stroke: rgba(0, 128, 73, 0.62);
+      --ink: #18231f;
+      --muted: #53655f;
+      --line: rgba(22, 34, 30, .17);
+      --panel: rgba(255, 255, 255, .94);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
-    html, body, #map { height: 100%; margin: 0; }
+    html, body, #stage { width: 100%; height: 100%; margin: 0; }
     body { background: var(--bg); color: var(--ink); overflow: hidden; }
-    #map { position: fixed; inset: 0; background: #ffffff; }
-    .leaflet-container { background: #ffffff; font-family: inherit; }
-    .leaflet-image-layer { image-rendering: auto; }
+    #stage { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
+    #stage:active { cursor: grabbing; }
+    #mapImage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: __IMAGE_WIDTH__px;
+      height: __IMAGE_HEIGHT__px;
+      max-width: none;
+      transform-origin: 0 0;
+      user-select: none;
+      pointer-events: none;
+    }
+    #hotCanvas, #pinCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
     .hud {
       position: fixed;
-      z-index: 800;
+      z-index: 20;
       left: 16px;
       top: 16px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       padding: 8px;
       border: 1px solid var(--line);
-      border-radius: 9px;
+      border-radius: 10px;
       background: var(--panel);
-      box-shadow: 0 20px 48px rgba(15, 23, 42, .12);
-      backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: 0 20px 42px rgba(9, 18, 14, .12);
+      backdrop-filter: blur(14px);
     }
-    .title {
-      padding: 0 6px 0 2px;
-      min-width: 210px;
-    }
-    .title h1 {
-      margin: 0;
-      font-size: 15px;
-      line-height: 1.2;
-      letter-spacing: 0;
-      font-weight: 700;
-    }
-    .title p {
-      margin: 3px 0 0;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .modebar, .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .title { min-width: 240px; padding-left: 2px; }
+    .title h1 { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 700; }
+    .title p { margin: 3px 0 0; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .modebar, .toolbar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
     .mode-btn, .tool-btn {
       appearance: none;
-      height: 33px;
-      border: 1px solid rgba(30, 44, 42, .14);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: rgba(255,255,255,.95);
-      color: #24342e;
+      height: 33px;
       padding: 0 11px;
       font: inherit;
       font-size: 11px;
       font-weight: 700;
+      color: #1f2f2b;
+      background: rgba(255, 255, 255, .97);
       cursor: pointer;
       white-space: nowrap;
     }
-    .mode-btn.active {
+    .mode-btn.active, .tool-btn:active {
       background: #00875a;
       color: #fff;
       border-color: #00875a;
     }
     .toolbar { margin-left: auto; }
-    .leaflet-control-zoom {
-      border: 1px solid rgba(30, 44, 42, .14) !important;
-      box-shadow: 0 14px 34px rgba(15, 23, 42, .16) !important;
+    .pin-popup {
+      position: fixed;
+      z-index: 30;
+      min-width: 220px;
+      max-width: 280px;
+      border-radius: 10px;
+      background: rgba(25, 32, 29, .96);
+      color: #fff;
+      box-shadow: 0 16px 36px rgba(20, 16, 8, .28);
+      padding: 11px 13px;
+      font-size: 12px;
+      transform: translate(-50%, -112%);
+      pointer-events: none;
+      display: none;
     }
-    .leaflet-map-error { pointer-events: none; }
-    .leaflet-control-zoom a {
-
-      border: 0 !important;
-      background: rgba(255,255,255,.96) !important;
-      color: #1e2c2a !important;
-    }
-    @media (max-width: 920px) {
-      .hud { right: 16px; flex-wrap: wrap; }
+    .pin-popup h2 { margin: 0 0 7px; font-size: 14px; line-height: 1.2; }
+    .pin-popup p { margin: 4px 0 0; color: rgba(255,255,255,.78); }
+    @media (max-width: 760px) {
+      .hud { right: 16px; left: 16px; flex-wrap: wrap; }
+      .title { min-width: 180px; }
+      .toolbar { margin-left: 0; }
     }
   </style>
 </head>
 <body>
-  <div id="map"></div>
+  <main id="stage" aria-label="LSN North America map">
+    <img id="mapImage" alt="" draggable="false" src="__MAP_IMAGE__">
+    <canvas id="hotCanvas"></canvas>
+    <canvas id="pinCanvas"></canvas>
+  </main>
   <div class="hud" aria-label="map controls">
     <div class="title">
       <h1>__TITLE__</h1>
       <p><span id="headerCount">0</span> deployments · __PROJECTION__</p>
     </div>
-    <nav class="modebar" aria-label="Visualization modes">
-      <button class="mode-btn active" data-mode="hot-zones">Hot-zones</button>
-      <button class="mode-btn" data-mode="points">Points</button>
-      <button class="mode-btn" data-mode="pins">Pins</button>
-      <button class="mode-btn" data-mode="flags">Flags</button>
+    <nav class="modebar" aria-label="Layer toggles">
+      <button class="mode-btn active" id="hotZonesToggle" type="button">Hot Zones</button>
+      <button class="mode-btn active" id="pinsToggle" type="button">Pins</button>
+      <button class="mode-btn" id="pointsToggle" type="button">Points</button>
     </nav>
     <div class="toolbar">
-      <button class="tool-btn" id="fitBtn" title="Fit map view">Fit</button>
-      <button class="tool-btn" id="fullscreenBtn" title="Fullscreen">Fullscreen</button>
+      <button class="tool-btn" id="zoomInBtn" type="button">Zoom +</button>
+      <button class="tool-btn" id="zoomOutBtn" type="button">Zoom -</button>
+      <button class="tool-btn" id="fitBtn" type="button">Fit</button>
+      <button class="tool-btn" id="fullscreenBtn" type="button">Fullscreen</button>
     </div>
   </div>
+  <div id="popup" class="pin-popup"></div>
   <script>
     const generatedAt = "__GENERATED_AT__";
     const sourceCsv = "__SOURCE_CSV__";
     const sourcePin = "__SOURCE_PIN__";
     const basemapSvg = "__BASEMAP_SVG__";
-    const deployments = __DEPLOYMENTS_JSON__;
-    const mapImage = "__MAP_IMAGE__";
+    const hawaiiBasemapSvg = "__HAWAII_BASEMAP_SVG__";
+    const mainDeployments = __MAIN_DEPLOYMENTS_JSON__;
+    const hawaiiDeployments = __HAWAII_DEPLOYMENTS_JSON__;
+    const mainMapImage = "__MAP_IMAGE__";
+    const hawaiiMapImage = "__HAWAII_MAP_IMAGE__";
     const pinImage = "__PIN_IMAGE__";
     const pinIsSvg = __PIN_IS_SVG__;
     const imageSize = { width: __IMAGE_WIDTH__, height: __IMAGE_HEIGHT__ };
+    const hawaiiImageSize = { width: __HAWAII_IMAGE_WIDTH__, height: __HAWAII_IMAGE_HEIGHT__ };
     const projectionName = "__PROJECTION__";
 
+    const HOT_ZONES_FADE_START_ZOOM = 1.7;
+    const HOTZONE_DISTANCE = 82;
+    const HOTZONE_MIN_RADIUS = 14;
+    const HOTZONE_MAX_RADIUS = 72;
+    const HOTZONE_BASE_RADIUS = 12;
+    const HOTZONE_SCALE = 5.2;
+    const HOTZONE_SCREEN_CELL = 64;
+    const HOTZONE_MIN_CLUSTER_COUNT = 3;
+    const HOTZONE_FILL = "rgba(0, 167, 81, 0.23)";
+    const HOTZONE_STROKE = "rgba(0, 127, 61, 0.62)";
+    const ZOOM_STEP = 1.18;
+    const PIN_ANIMATION_DURATION = 520;
+    const PIN_STAGGER_MAX = 250;
+    const POINT_RADIUS_BASE = 2.2;
+    const POINT_RADIUS_STEP = 0.08;
+
     const format = new Intl.NumberFormat("en-US");
-    const hotZoneConfig = {
-      distance: 80,
-      minRadius: 22,
-      maxRadius: 120,
-      baseRadius: 16,
-      factor: 8.4,
-      fill: "rgba(47, 159, 98, 0.28)",
-      stroke: "rgba(0, 128, 73, 0.62)",
-      lineWidth: 1.3
-    };
+    const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const pinDuration = prefersReducedMotion ? 30 : PIN_ANIMATION_DURATION;
+    const pinDelayMax = prefersReducedMotion ? 0 : PIN_STAGGER_MAX;
 
-    function escapeHtml(value) {
-      return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    const stage = document.getElementById("stage");
+    const mapImageEl = document.getElementById("mapImage");
+    const hotCanvas = document.getElementById("hotCanvas");
+    const pinCanvas = document.getElementById("pinCanvas");
+    const hotCtx = hotCanvas.getContext("2d");
+    const pinCtx = pinCanvas.getContext("2d");
+    const popup = document.getElementById("popup");
+    const pinImg = new Image();
+    pinImg.src = pinImage;
+
+    const layerState = { hotZonesEnabled: true, pinsEnabled: true, pointsEnabled: false };
+    let transform = d3.zoomIdentity;
+    let viewport = { width: 0, height: 0, ratio: 1 };
+    let fitScale = 1;
+    let raf = null;
+    let pinRevealStart = performance.now();
+
+    const mainPoints = (mainDeployments || [])
+      .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y))
+      .map((d) => ({ ...d, _pinDelay: hashDeterministicDelay(d.id, d.zip, d.cc) }));
+    const hawaiiPoints = (hawaiiDeployments || [])
+      .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y))
+      .map((d) => ({ ...d, _pinDelay: hashDeterministicDelay(d.id, d.zip, d.cc) }));
+    const allPoints = mainPoints.concat(hawaiiPoints);
+    const mainHotZones = buildHotZones(allPoints, HOTZONE_DISTANCE, imageSize.width, imageSize.height);
+
+    function resizeCanvas(canvas, ctx) {
+      const rect = stage.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      viewport = { width: rect.width, height: rect.height, ratio };
+      canvas.width = Math.max(1, Math.round(rect.width * ratio));
+      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     }
 
-    function popupHtml(d) {
-      const rows = [
-        ["Deployment", d.id],
-        ["Country", d.cc],
-        ["Postal", d.zip],
-        ["Status", d.status],
-        ["Model", d.model],
-        ["Manager", d.manager],
-        ["Install date", d.date]
-      ];
-      return `<strong>${escapeHtml(d.name || "Deployment")}</strong><div style="margin-top:6px;color:rgba(255,255,255,.78);font-size:12px">${escapeHtml(d.id) || "&nbsp;"}</div>` +
-        rows.map(([k, v]) => `<div style="margin-top:8px"><div style=\"font-size:11px;color:rgba(255,255,255,.55);font-weight:700;text-transform:uppercase;letter-spacing:.6px\">${escapeHtml(k)}</div><div>${escapeHtml(v)}</div></div>`).join("");
+    function resizeAll() {
+      resizeCanvas(hotCanvas, hotCtx);
+      resizeCanvas(pinCanvas, pinCtx);
     }
 
-    function initFinalMap() {
-    const map = L.map("map", {
-      crs: L.CRS.Simple,
-      minZoom: -1.7,
-      maxZoom: 3.3,
-      wheelPxPerZoomLevel: 75,
-      zoomControl: true,
-      attributionControl: false,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false
-    });
+    function fitTransform() {
+      const padX = Math.min(72, Math.max(20, viewport.width * 0.035));
+      const padY = Math.min(56, Math.max(20, viewport.height * 0.035));
+      const k = Math.min((viewport.width - padX * 2) / imageSize.width, (viewport.height - padY * 2) / imageSize.height);
+      const x = (viewport.width - imageSize.width * k) / 2;
+      const y = (viewport.height - imageSize.height * k) / 2;
+      fitScale = k;
+      return d3.zoomIdentity.translate(x, y).scale(k);
+    }
 
-    const bounds = [[0, 0], [imageSize.height, imageSize.width]];
-    L.imageOverlay(mapImage, bounds, { interactive: false }).addTo(map);
+    function currentScale() {
+      return Math.max(0.001, transform.k);
+    }
 
-    const projected = deployments.map(d => ({
-      ...d,
-      latlng: L.latLng(imageSize.height - d.y, d.x)
-    }));
+    function relativeZoom() {
+      return Math.max(1, transform.k / Math.max(0.001, fitScale));
+    }
 
-    const hotZones = buildHotZones(projected, hotZoneConfig.distance);
+    function applyTransform() {
+      mapImageEl.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`;
+      draw();
+    }
 
-    fitMap();
-
-    function fitMap() {
-      const leftPadding = 16;
-      const rightPadding = 16;
-      const bottomPadding = 16;
-      const topPadding = 16;
-      const isDesktop = window.innerWidth >= 920;
-      map.fitBounds(bounds, {
-        paddingTopLeft: [leftPadding, topPadding],
-        paddingBottomRight: [isDesktop ? (window.innerWidth > 1200 ? 390 : 220) : rightPadding, bottomPadding],
-        animate: false
+    function requestDraw() {
+      if (raf !== null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        draw();
       });
     }
 
-    class MapPointLayer extends L.Layer {
-      constructor(points) {
-        super();
-        this.points = points;
-        this.mode = "hot-zones";
-        this.pinImage = new Image();
-        this.pinImageLoaded = false;
-        this.pinImage.onload = () => {
-          this.pinImageLoaded = true;
-          this.draw();
-        };
-        this.pinImage.src = pinImage;
+    function mapToScreen(point) {
+      return {
+        x: transform.applyX(point.x),
+        y: transform.applyY(point.y)
+      };
+    }
+
+    function draw() {
+      hotCtx.clearRect(0, 0, viewport.width, viewport.height);
+      pinCtx.clearRect(0, 0, viewport.width, viewport.height);
+      if (layerState.hotZonesEnabled) {
+        drawHotZones(hotCtx);
       }
-      onAdd(mapInstance) {
-        this.map = mapInstance;
-        this.canvas = L.DomUtil.create("canvas", "point-canvas leaflet-zoom-animated");
-        this.ctx = this.canvas.getContext("2d");
-        mapInstance.getPanes().overlayPane.appendChild(this.canvas);
-        L.DomEvent.on(this.canvas, "click", this.onClick, this);
-        mapInstance.on("resize viewreset zoomend moveend", this.reset, this);
-        this.reset();
+      if (layerState.pointsEnabled) {
+        drawPoints(pinCtx);
       }
-      onRemove(mapInstance) {
-        L.DomEvent.off(this.canvas, "click", this.onClick, this);
-        mapInstance.off("resize viewreset zoomend moveend", this.reset, this);
-        this.canvas.remove();
-      }
-      setMode(mode) {
-        this.mode = mode;
-        this.draw();
-      }
-      reset() {
-        const size = this.map.getSize();
-        const topLeft = this.map.containerPointToLayerPoint([0, 0]);
-        this.topLeft = topLeft;
-        L.DomUtil.setPosition(this.canvas, topLeft);
-        const ratio = window.devicePixelRatio || 1;
-        this.canvas.width = Math.round(size.x * ratio);
-        this.canvas.height = Math.round(size.y * ratio);
-        this.canvas.style.width = `${size.x}px`;
-        this.canvas.style.height = `${size.y}px`;
-        this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        this.viewport = size;
-        this.draw();
-      }
-      pointToCanvas(d) {
-        return this.map.latLngToLayerPoint(d.latlng).subtract(this.topLeft);
-      }
-      draw() {
-        const ctx = this.ctx;
-        ctx.clearRect(0, 0, this.viewport.x, this.viewport.y);
-        if (this.mode === "hot-zones") {
-          this.drawHotZones(ctx);
-          this.drawPoints(ctx);
-          return;
-        }
-        if (this.mode === "points") this.drawPoints(ctx);
-        if (this.mode === "pins") this.drawPins(ctx);
-        if (this.mode === "flags") this.drawFlags(ctx);
-      }
-      drawHotZones(ctx) {
-        const zoom = this.map.getZoom();
-        const baseStroke = Math.max(1, Math.min(2.4, 1.4 + zoom * 0.2));
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.globalAlpha = 0.9;
-        for (const zone of hotZones) {
-          const p = this.pointToCanvas(zone);
-          if (p.x < -zone.radius - 20 || p.y < -zone.radius - 20 || p.x > this.viewport.x + zone.radius + 20 || p.y > this.viewport.y + zone.radius + 20) {
-            continue;
-          }
-          ctx.beginPath();
-          ctx.fillStyle = hotZoneConfig.fill;
-          ctx.strokeStyle = hotZoneConfig.stroke;
-          ctx.lineWidth = baseStroke;
-          ctx.arc(p.x, p.y, zone.radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-      drawPoints(ctx) {
-        const zoom = this.map.getZoom();
-        const radius = Math.max(2.2, Math.min(3.2, 2.4 + zoom * 0.2));
-        ctx.save();
-        for (const d of this.points) {
-          const p = this.pointToCanvas(d);
-          if (p.x < -20 || p.y < -20 || p.x > this.viewport.x + 20 || p.y > this.viewport.y + 20) continue;
-          ctx.beginPath();
-          ctx.fillStyle = "rgba(0,135,90,0.9)";
-          ctx.strokeStyle = "rgba(0,95,72,0.98)";
-          ctx.lineWidth = 1;
-          ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-      drawPins(ctx) {
-        const zoom = this.map.getZoom();
-        const maxSize = Math.max(10, Math.min(15, 11 + zoom * 1.1));
-        const ratio = this.pinImageLoaded ? 1 : 0;
-        for (const d of this.points) {
-          const p = this.pointToCanvas(d);
-          if (p.x < -35 || p.y < -35 || p.x > this.viewport.x + 35 || p.y > this.viewport.y + 35) continue;
-          const w = maxSize;
-          const h = maxSize * (pinIsSvg ? 1.45 : 1.45);
-          if (ratio) {
-            ctx.drawImage(this.pinImage, p.x - w * 0.5, p.y - h, w, h);
-            continue;
-          }
-          ctx.save();
-          ctx.beginPath();
-          ctx.fillStyle = "#00a06b";
-          ctx.strokeStyle = "rgba(255,255,255,0.95)";
-          ctx.lineWidth = 1;
-          ctx.arc(p.x, p.y - (h * 0.15), Math.max(1.6, maxSize * 0.16), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.restore();
-        }
-      }
-      drawFlags(ctx) {
-        const zoom = this.map.getZoom();
-        const h = Math.max(8, Math.min(13, 9.6 + zoom * 0.5));
-        const w = h * 0.98;
-        for (const d of this.points) {
-          const p = this.pointToCanvas(d);
-          if (p.x < -22 || p.y < -28 || p.x > this.viewport.x + 22 || p.y > this.viewport.y + 22) continue;
-          const top = p.y - h - 4;
-          const centerX = p.x - w * 0.18;
-          const flagColor = "#00a06b";
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-          ctx.lineTo(p.x, top + h * 0.8);
-          ctx.strokeStyle = "#dce5dc";
-          ctx.lineWidth = 1.4;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(centerX, top);
-          ctx.lineTo(centerX + w, top + h * 0.18);
-          ctx.lineTo(centerX + w, top + h * 0.72);
-          ctx.lineTo(centerX, top + h);
-          ctx.closePath();
-          ctx.fillStyle = flagColor;
-          ctx.fill();
-          ctx.strokeStyle = "rgba(255,255,255,0.85)";
-          ctx.lineWidth = 0.9;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(p.x, p.y + 2.5, 2.0, 0, Math.PI * 2);
-          ctx.fillStyle = "#fff";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(0,95,72,0.45)";
-          ctx.stroke();
-        }
-      }
-      onClick(event) {
-        const clickPoint = this.map.latLngToLayerPoint(event.latlng);
-        let nearest = null;
-        let nearestDist = Infinity;
-        for (const d of this.points) {
-          const point = this.map.latLngToLayerPoint(d.latlng);
-          const dist = point.distanceTo(clickPoint);
-          if (dist < nearestDist) {
-            nearest = d;
-            nearestDist = dist;
-          }
-        }
-        const threshold = 18;
-        if (nearest && nearestDist <= threshold) {
-          const popup = L.popup({ closeButton: false, offset: [0, -8] })
-            .setLatLng(nearest.latlng)
-            .setContent(popupHtml(nearest))
-            .openOn(this.map);
-        }
+      if (layerState.pinsEnabled) {
+        const pending = drawPins(pinCtx, performance.now());
+        if (pending) requestDraw();
       }
     }
 
-    function buildHotZones(points, distancePx) {
+    function buildScreenHotZones() {
+      if (!allPoints.length) return [];
+      const buckets = new Map();
+      const mobileFactor = viewport.width < 760 ? 0.56 : 1;
+      const cell = (HOTZONE_SCREEN_CELL * mobileFactor) / currentScale();
+      const minClusterCount = viewport.width < 760 || relativeZoom() >= 2.2 ? 2 : HOTZONE_MIN_CLUSTER_COUNT;
+      for (const point of allPoints) {
+        const p = mapToScreen(point);
+        if (p.x < -120 || p.y < -120 || p.x > viewport.width + 120 || p.y > viewport.height + 120) continue;
+        const key = `${Math.floor(point.x / cell)}|${Math.floor(point.y / cell)}`;
+        const entry = buckets.get(key) || { count: 0, x: 0, y: 0 };
+        entry.count += 1;
+        entry.x += point.x;
+        entry.y += point.y;
+        buckets.set(key, entry);
+      }
+      return [...buckets.values()]
+        .filter((entry) => entry.count >= minClusterCount)
+        .map((entry) => {
+          const screenRadius = Math.min(
+            HOTZONE_MAX_RADIUS,
+            Math.max(HOTZONE_MIN_RADIUS, HOTZONE_BASE_RADIUS + Math.sqrt(entry.count) * HOTZONE_SCALE)
+          );
+          const radius = screenRadius / currentScale();
+          return { x: entry.x / entry.count, y: entry.y / entry.count, radius, screenRadius, count: entry.count };
+        })
+        .sort((a, b) => b.screenRadius - a.screenRadius);
+    }
+
+    function drawHotZones(ctx) {
+      const clusters = this.buildScreenHotZones ? this.buildScreenHotZones() : buildScreenHotZones();
+      if (!clusters.length) return;
+      ctx.save();
+      ctx.translate(transform.x, transform.y);
+      ctx.scale(transform.k, transform.k);
+      ctx.setLineDash([3, 4]);
+      ctx.globalAlpha = 1;
+      for (const zone of clusters) {
+        ctx.beginPath();
+        ctx.fillStyle = HOTZONE_FILL;
+        ctx.strokeStyle = HOTZONE_STROKE;
+        ctx.lineWidth = 1.15 / currentScale();
+        ctx.setLineDash([4 / currentScale(), 5 / currentScale()]);
+        ctx.arc(zone.x, zone.y, zone.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawPoints(ctx) {
+      const screenRadius = Math.max(1.8, Math.min(3.2, POINT_RADIUS_BASE + Math.log2(relativeZoom()) * POINT_RADIUS_STEP));
+      const radius = screenRadius / currentScale();
+      ctx.save();
+      ctx.translate(transform.x, transform.y);
+      ctx.scale(transform.k, transform.k);
+      for (const point of allPoints) {
+        const p = mapToScreen(point);
+        if (p.x < -18 || p.y < -18 || p.x > viewport.width + 18 || p.y > viewport.height + 18) continue;
+        ctx.beginPath();
+        ctx.fillStyle = "#00875a";
+        ctx.strokeStyle = "rgba(0, 95, 72, 0.98)";
+        ctx.lineWidth = 0.8 / currentScale();
+        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawPins(ctx, now) {
+      const pinH = 16;
+      const pinW = pinH * 0.63;
+      let pending = false;
+      ctx.save();
+      ctx.translate(transform.x, transform.y);
+      ctx.scale(transform.k, transform.k);
+      for (const point of allPoints) {
+        const p = mapToScreen(point);
+        if (p.x < -35 || p.y < -44 || p.x > viewport.width + 35 || p.y > viewport.height + 35) continue;
+        const delay = Number.isFinite(point._pinDelay) ? point._pinDelay : 0;
+        const revealRaw = pinRevealStart === null ? 1 : (now - pinRevealStart - delay) / pinDuration;
+        const reveal = Math.min(1, Math.max(0, revealRaw));
+        if (reveal < 1) pending = true;
+        if (reveal <= 0) continue;
+        const eased = 1 - Math.pow(1 - reveal, 2);
+        const scale = 0.78 + 0.22 * eased;
+        const alpha = 0.16 + 0.84 * eased;
+        const drop = (1 - eased) * 8;
+        const markerZoom = 1 + Math.log2(relativeZoom()) * 0.08;
+        const drawW = pinW * scale * markerZoom / currentScale();
+        const drawH = pinH * scale * markerZoom / currentScale();
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        if (pinImg.complete && pinImg.naturalWidth > 0) {
+          ctx.drawImage(pinImg, point.x - drawW / 2, point.y - drawH + drop / currentScale(), drawW, drawH);
+        } else {
+          ctx.beginPath();
+          ctx.fillStyle = "#00a06b";
+          ctx.strokeStyle = "#29445b";
+          ctx.lineWidth = 1.4 / currentScale();
+          ctx.arc(point.x, point.y - 6 / currentScale(), 4.2 * scale / currentScale(), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      ctx.restore();
+      if (!pending && pinRevealStart !== null) pinRevealStart = null;
+      return pending;
+    }
+
+    function startPinReveal() {
+      pinRevealStart = performance.now();
+      requestDraw();
+    }
+
+    function handleZoom(event) {
+      transform = event.transform;
+      applyTransform();
+    }
+
+    const zoom = d3.zoom()
+      .scaleExtent([0.18, 9])
+      .touchable(() => true)
+      .filter((event) => !event.button)
+      .on("zoom", handleZoom);
+
+    const stageSelection = d3.select(stage).call(zoom);
+
+    function setTransform(next, animate = false) {
+      transform = next;
+      if (animate && !prefersReducedMotion) {
+        stageSelection.transition().duration(220).ease(d3.easeCubicOut).call(zoom.transform, next);
+      } else {
+        stageSelection.call(zoom.transform, next);
+        applyTransform();
+      }
+    }
+
+    function rebuildControls() {
+      document.getElementById("hotZonesToggle").classList.toggle("active", layerState.hotZonesEnabled);
+      document.getElementById("pinsToggle").classList.toggle("active", layerState.pinsEnabled);
+      document.getElementById("pointsToggle").classList.toggle("active", layerState.pointsEnabled);
+    }
+
+    function onLayerStateUpdate(next) {
+      const previousPinsEnabled = layerState.pinsEnabled;
+      layerState.hotZonesEnabled = next.hotZonesEnabled;
+      layerState.pinsEnabled = next.pinsEnabled;
+      layerState.pointsEnabled = next.pointsEnabled;
+      rebuildControls();
+      if (!previousPinsEnabled && layerState.pinsEnabled) startPinReveal();
+      else requestDraw();
+    }
+
+    function buildHotZones(points, distancePx, mapWidth, mapHeight) {
+      const validPoints = Array.isArray(points) ? points.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y)) : [];
+      if (!validPoints.length) return [];
       const cellSize = distancePx;
       const cells = new Map();
-      const parent = [...Array(points.length).keys()];
-      const rank = new Array(points.length).fill(1);
+      const parent = [...Array(validPoints.length).keys()];
+      const rank = new Array(validPoints.length).fill(1);
       const clusters = [];
-
       const getCell = (point) => [Math.floor(point.x / cellSize), Math.floor(point.y / cellSize)];
       const key = (cx, cy) => `${cx}|${cy}`;
-
-      points.forEach((point, idx) => {
+      validPoints.forEach((point, idx) => {
         const [cx, cy] = getCell(point);
-        const cellKey = key(cx, cy);
-        const ids = cells.get(cellKey) || [];
+        const ids = cells.get(key(cx, cy)) || [];
         ids.push(idx);
-        cells.set(cellKey, ids);
-
+        cells.set(key(cx, cy), ids);
         for (let ox = -1; ox <= 1; ox++) {
           for (let oy = -1; oy <= 1; oy++) {
             const nearby = cells.get(key(cx + ox, cy + oy)) || [];
             for (const otherIdx of nearby) {
               if (otherIdx >= idx) continue;
-              const dx = points[otherIdx].x - point.x;
-              const dy = points[otherIdx].y - point.y;
-              if (dx * dx + dy * dy <= distancePx * distancePx) {
-                union(parent, rank, idx, otherIdx);
-              }
+              const dx = validPoints[otherIdx].x - point.x;
+              const dy = validPoints[otherIdx].y - point.y;
+              if (dx * dx + dy * dy <= distancePx * distancePx) union(parent, rank, idx, otherIdx);
             }
           }
         }
       });
-
-      for (let i = 0; i < points.length; i++) {
+      for (let i = 0; i < validPoints.length; i++) {
         const root = find(parent, i);
         clusters[root] = clusters[root] || { count: 0, x: 0, y: 0 };
         clusters[root].count += 1;
-        clusters[root].x += points[i].x;
-        clusters[root].y += points[i].y;
+        clusters[root].x += validPoints[i].x;
+        clusters[root].y += validPoints[i].y;
       }
-
-      return Object.values(clusters)
-        .filter(Boolean)
-        .map((entry) => {
-          const cx = entry.x / entry.count;
-          const cy = entry.y / entry.count;
-          const radius = Math.min(
-            hotZoneConfig.maxRadius,
-            Math.max(
-              hotZoneConfig.minRadius,
-              hotZoneConfig.baseRadius + Math.sqrt(entry.count) * hotZoneConfig.factor
-            )
-          );
-          return {
-            x: cx,
-            y: cy,
-            radius,
-            count: entry.count
-          };
-        })
-        .sort((a, b) => b.radius - a.radius);
+      return Object.values(clusters).filter(Boolean).map((entry) => ({
+        x: entry.x / entry.count,
+        y: entry.y / entry.count,
+        radius: Math.min(HOTZONE_MAX_RADIUS, Math.max(HOTZONE_MIN_RADIUS, HOTZONE_BASE_RADIUS + Math.sqrt(entry.count) * HOTZONE_SCALE)),
+        count: entry.count
+      }));
     }
 
+    function hashDeterministicDelay(...parts) {
+      let seed = 0;
+      for (const part of parts) {
+        const value = String(part ?? "");
+        for (let i = 0; i < value.length; i++) seed = (seed * 31 + value.charCodeAt(i)) >>> 0;
+      }
+      return seedDelay(seed) % (pinDelayMax + 1);
+    }
+    function seedDelay(seed) {
+      let value = (seed ^ 0x5bd1e995) >>> 0;
+      value ^= value << 13;
+      value ^= value >>> 17;
+      value ^= value << 5;
+      return value & 0xffff;
+    }
     function find(parent, x) {
       if (parent[x] === x) return x;
       parent[x] = find(parent, parent[x]);
@@ -946,92 +1200,73 @@ HTML_TEMPLATE = """<!doctype html>
       const rootA = find(parent, a);
       const rootB = find(parent, b);
       if (rootA === rootB) return;
-      if (rank[rootA] < rank[rootB]) {
-        parent[rootA] = rootB;
-      } else if (rank[rootA] > rank[rootB]) {
-        parent[rootB] = rootA;
-      } else {
+      if (rank[rootA] < rank[rootB]) parent[rootA] = rootB;
+      else if (rank[rootA] > rank[rootB]) parent[rootB] = rootA;
+      else {
         parent[rootB] = rootA;
         rank[rootA] += 1;
       }
     }
 
-    const pointLayer = new MapPointLayer(projected);
-    pointLayer.addTo(map);
-
-    let activeMode = "hot-zones";
-    const pointsInside = projected.filter(d => d.insideViewport).length;
-    document.getElementById("headerCount").textContent = format.format(projected.length);
-
-    function setMode(mode) {
-      activeMode = mode;
-      pointLayer.setMode(mode);
-      document.querySelectorAll(".mode-btn").forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.mode === mode);
-      });
-    }
-
-    document.querySelectorAll(".mode-btn").forEach(btn =>
-      btn.addEventListener("click", () => setMode(btn.dataset.mode))
-    );
-
-    document.getElementById("fitBtn").addEventListener("click", fitMap);
+    document.getElementById("hotZonesToggle").addEventListener("click", () => {
+      onLayerStateUpdate({ ...layerState, hotZonesEnabled: !layerState.hotZonesEnabled });
+    });
+    document.getElementById("pinsToggle").addEventListener("click", () => {
+      onLayerStateUpdate({ ...layerState, pinsEnabled: !layerState.pinsEnabled });
+    });
+    document.getElementById("pointsToggle").addEventListener("click", () => {
+      onLayerStateUpdate({ ...layerState, pointsEnabled: !layerState.pointsEnabled });
+    });
+    document.getElementById("fitBtn").addEventListener("click", () => setTransform(fitTransform(), true));
+    document.getElementById("zoomInBtn").addEventListener("click", () => setTransform(transform.scale(ZOOM_STEP), true));
+    document.getElementById("zoomOutBtn").addEventListener("click", () => setTransform(transform.scale(1 / ZOOM_STEP), true));
     document.getElementById("fullscreenBtn").addEventListener("click", async () => {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       else await document.exitFullscreen();
-      setTimeout(() => map.invalidateSize(), 180);
-      setTimeout(() => fitMap(), 220);
+      setTimeout(() => {
+        resizeAll();
+        setTransform(fitTransform(), true);
+      }, 180);
     });
+    function handleViewportChange() {
+      resizeAll();
+      applyTransform();
+    }
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("orientationchange", handleViewportChange);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleViewportChange);
+      window.visualViewport.addEventListener("scroll", handleViewportChange);
+    }
+    pinImg.onload = requestDraw;
 
-    map.on("resize", () => {
-      setTimeout(() => fitMap(), 60);
-    });
-
-    setMode("hot-zones");
+    resizeAll();
+    setTransform(fitTransform(), false);
+    startPinReveal();
+    rebuildControls();
+    document.getElementById("headerCount").textContent = format.format(allPoints.length);
     window.__LSN_MAP_FINAL_PROOF__ = {
       generatedAt,
       sourceCsv,
       sourcePin,
       basemapSvg,
+      hawaiiBasemapSvg,
       projectionName,
-      renderer: "gis-final-light-canvas",
-      rows: deployments.length,
-      plotted: projected.length,
-      mode: activeMode,
-      insideViewport: pointsInside,
-      rawInsideBasemap: projected.filter(d => d.insideBasemap).length,
-      displayAdjusted: projected.filter(d => d.displayAdjusted).length,
-      pointLayer: "canvas"
+      renderer: "d3-gis-final-single-transform-canvas",
+      rows: mainDeployments.length + hawaiiDeployments.length,
+      mainRows: mainPoints.length,
+      hawaiiRows: hawaiiPoints.length,
+      points: allPoints.length,
+      plottedMain: mainPoints.length,
+      plottedHawaii: hawaiiPoints.length,
+      hotZonesEnabled: layerState.hotZonesEnabled,
+      pinsEnabled: layerState.pinsEnabled,
+      pointsEnabled: layerState.pointsEnabled,
+      pointLayer: "canvas",
+      hotZoneClustering: "screen-space",
+      hotZoneClusterTightenZoom: HOT_ZONES_FADE_START_ZOOM,
+      hasHawaiiInset: false
     };
-
-  }
-
-  if (typeof L === "undefined" || typeof L.map !== "function") {
-    const status = document.createElement("div");
-    status.className = "leaflet-map-error";
-    status.innerHTML = `<div>Leaflet library failed to load.<br/>Please check network access to CDN and reload.</div>`;
-    status.style.cssText = "position:fixed;inset:16px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.9);border:1px solid rgba(30,44,42,.2);border-radius:10px;padding:12px;z-index:1000;max-width:420px;font:600 13px/1.35 Inter, sans-serif;color:#1e2c2a;text-align:center;";
-    status.style.boxShadow = "0 14px 34px rgba(15,23,42,.12)";
-    status.setAttribute("role", "status");
-    status.setAttribute("aria-live", "polite");
-    document.body.appendChild(status);
-  } else {
-    try {
-      initFinalMap();
-    } catch (error) {
-      const errorStatus = document.createElement("div");
-      errorStatus.className = "leaflet-map-error";
-      errorStatus.innerHTML = `<div>Map init error: ${error.message}</div>`;
-      errorStatus.style.cssText = "position:fixed;inset:16px;display:flex;align-items:center;justify-content:center;background:rgba(255,245,245,.95);border:1px solid #fca5a5;border-radius:10px;padding:12px;z-index:1000;max-width:420px;font:600 13px/1.35 Inter, sans-serif;color:#7f1d1d;text-align:center;";
-      errorStatus.style.boxShadow = "0 14px 34px rgba(15,23,42,.12)";
-      errorStatus.setAttribute("role", "status");
-      errorStatus.setAttribute("aria-live", "assertive");
-      document.body.appendChild(errorStatus);
-      throw error;
-    }
-  }
-
-
   </script>
 </body>
 </html>

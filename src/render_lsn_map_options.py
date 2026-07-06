@@ -1,4 +1,4 @@
-"""Render a standalone Leaflet prototype on the supplied LSN map artwork."""
+"""Render the final client-facing LSN map on the supplied North America artwork."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 DEFAULT_INPUT = "data/output/clients_geocoded.csv"
 DEFAULT_MAP_IMAGE = "data/assets/client-map/new-na-map.svg"
 DEFAULT_PIN_IMAGE = "data/assets/client-map/pin-na-map.svg"
-DEFAULT_OUTPUT = "data/output/lsn-map-options.html"
+DEFAULT_OUTPUT = "data/output/lsn-map-final.html"
 
 
 def read_png_size(path: Path) -> tuple[int, int]:
@@ -179,7 +179,7 @@ def _parse_int(value: str | None, default: int) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render LSN map comparison prototype")
+    parser = argparse.ArgumentParser(description="Render final LSN map")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--map-image", default=DEFAULT_MAP_IMAGE, help="Path to browser-ready SVG/PNG artwork")
     parser.add_argument("--pin-image", default=DEFAULT_PIN_IMAGE, help="Path to browser-ready SVG/PNG pin")
@@ -205,7 +205,6 @@ HTML_TEMPLATE = """<!doctype html>
   <title>__TITLE__ - Map Options</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
   <style>
     :root {
       --bg: #eef3f1;
@@ -260,9 +259,9 @@ HTML_TEMPLATE = """<!doctype html>
     .brand h1 { margin: 0; font-size: 20px; line-height: 1.05; letter-spacing: 0; }
     .brand p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.2; font-weight: 650; }
 
-    .modebar, .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
     .toolbar { margin-left: auto; flex-wrap: nowrap; }
-    .mode-btn, .tool-btn {
+    .tool-btn {
       appearance: none;
       height: 38px;
       border: 1px solid rgba(23,35,31,.13);
@@ -277,64 +276,8 @@ HTML_TEMPLATE = """<!doctype html>
       transition: transform .16s ease, background .16s ease, border-color .16s ease;
       white-space: nowrap;
     }
-    .mode-btn:hover, .tool-btn:hover { transform: translateY(-1px); border-color: rgba(0,127,61,.34); }
-    .mode-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+    .tool-btn:hover { transform: translateY(-1px); border-color: rgba(0,127,61,.34); }
     .tool-btn { min-width: 42px; padding: 0 11px; }
-
-    .panel {
-      position: fixed;
-      z-index: 590;
-      right: 24px;
-      top: 20px;
-      width: 272px;
-      max-height: calc(100vh - 40px);
-      overflow: auto;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      box-shadow: 0 20px 60px rgba(15, 23, 42, .14);
-      backdrop-filter: blur(18px) saturate(1.25);
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-    .metric {
-      min-height: 78px;
-      border: 1px solid rgba(23,35,31,.10);
-      border-radius: 8px;
-      background: rgba(255,255,255,.62);
-      padding: 10px;
-    }
-    .metric-label {
-      margin-bottom: 6px;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 820;
-      text-transform: uppercase;
-      letter-spacing: 0;
-    }
-    .metric-value { font-size: 22px; line-height: 1; font-weight: 820; letter-spacing: 0; }
-    .metric-note { margin-top: 5px; color: var(--muted); font-size: 11px; font-weight: 620; }
-
-    .legend-title {
-      margin: 14px 0 8px;
-      color: #24362e;
-      font-size: 11px;
-      font-weight: 820;
-      text-transform: uppercase;
-      letter-spacing: 0;
-    }
-    .legend-row { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0 4px; font-size: 12px; }
-    .legend-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
-    .legend-left span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
-    .bar { height: 4px; overflow: hidden; border-radius: 999px; background: rgba(23,35,31,.08); }
-    .bar span { display: block; height: 100%; border-radius: 999px; }
 
     .popup { min-width: 240px; color: #fff; }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip {
@@ -360,14 +303,11 @@ HTML_TEMPLATE = """<!doctype html>
     @media (max-width: 980px) {
       .topbar { right: 20px; left: 20px; top: 16px; align-items: flex-start; flex-wrap: wrap; }
       .toolbar { margin-left: 0; }
-      .panel { right: 20px; left: 20px; top: auto; bottom: 16px; width: auto; max-height: 34vh; }
       .brand { min-width: 100%; }
     }
 
     @media (max-width: 620px) {
-      .modebar { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-      .mode-btn { width: 100%; }
-      .panel { display: none; }
+      .topbar { gap: 8px; }
     }
   </style>
 </head>
@@ -379,31 +319,11 @@ HTML_TEMPLATE = """<!doctype html>
       <h1>__TITLE__</h1>
       <p><span id="headerCount">0</span> deployments</p>
     </div>
-    <nav class="modebar" aria-label="Visualization modes">
-      <button class="mode-btn active" data-mode="points">Pins</button>
-      <button class="mode-btn" data-mode="regions">Regions</button>
-      <button class="mode-btn" data-mode="badges">Flags</button>
-      <button class="mode-btn" data-mode="heat">Heatmap</button>
-      <button class="mode-btn" data-mode="hybrid">Heat + Pins</button>
-    </nav>
     <div class="toolbar">
       <button class="tool-btn" id="fitBtn" title="Fit map" aria-label="Fit map">Fit</button>
       <button class="tool-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen">Full</button>
     </div>
   </header>
-
-  <aside class="panel" aria-label="Map summary">
-    <div class="metrics">
-      <div class="metric"><div class="metric-label">Deployments</div><div class="metric-value" id="totalDeployments">0</div><div class="metric-note">mapped rows</div></div>
-      <div class="metric"><div class="metric-label">Generators</div><div class="metric-value" id="totalGenerators">0</div><div class="metric-note">total count</div></div>
-      <div class="metric"><div class="metric-label">Countries</div><div class="metric-value" id="countryTotal">0</div><div class="metric-note">US / CA / MX</div></div>
-      <div class="metric"><div class="metric-label">Mode</div><div class="metric-value" id="modeLabel">Pins</div><div class="metric-note">active view</div></div>
-    </div>
-    <div class="legend-title">Status</div>
-    <div id="statusLegend"></div>
-    <div class="legend-title">Country</div>
-    <div id="countryLegend"></div>
-  </aside>
 
   <script>
     const generatedAt = "__GENERATED_AT__";
@@ -425,8 +345,6 @@ HTML_TEMPLATE = """<!doctype html>
       "Under Maintenance": "#f59e0b",
       "Inactive": "#ef4444"
     };
-    const countryColors = { US: "#007f3d", CA: "#345168", MX: "#3f3f41" };
-    const modeLabels = { points: "Pins", regions: "Regions", badges: "Flags", heat: "Heat", hybrid: "Hybrid" };
     const format = new Intl.NumberFormat("en-US");
     const regionAnchors = mapProfile.regionAnchors;
     const pinIcon = new Image();
@@ -489,29 +407,22 @@ HTML_TEMPLATE = """<!doctype html>
       return `<div class="popup"><h2>${escapeHtml(d.name)}</h2><div class="popup-sub">${escapeHtml(d.id)} | ${escapeHtml(d.region)}</div><div class="popup-grid">${rows.map(([k,v]) => `<div><div class="popup-label">${escapeHtml(k)}</div><div class="popup-value">${escapeHtml(v)}</div></div>`).join("")}</div></div>`;
     }
 
-    function regionPopupHtml(entry) {
-      const rows = [
-        ["Region", entry.region],
-        ["Country", entry.cc],
-        ["Deployments", format.format(entry.count)],
-        ["Generators", format.format(entry.generators)],
-        ["Top status", entry.topStatus],
-        ["Placement", "Regional overview"]
-      ];
-      return `<div class="popup"><h2>${escapeHtml(entry.region)}</h2><div class="popup-sub">${escapeHtml(entry.cc)} | ${format.format(entry.count)} deployments</div><div class="popup-grid">${rows.map(([k,v]) => `<div><div class="popup-label">${escapeHtml(k)}</div><div class="popup-value">${escapeHtml(v)}</div></div>`).join("")}</div></div>`;
-    }
-
     const map = L.map("map", {
       crs: L.CRS.Simple,
       minZoom: -1.6,
       maxZoom: 2.6,
-      zoomSnap: 0.1,
-      wheelPxPerZoomLevel: 80,
+      zoomSnap: 0.2,
+      zoomDelta: 0.2,
+      wheelPxPerZoomLevel: 90,
+      scrollWheelZoom: true,
       zoomControl: false,
       attributionControl: false,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false
+      zoomAnimation: true,
+      fadeAnimation: true,
+      markerZoomAnimation: true,
+      inertia: true,
+      inertiaDeceleration: 6000,
+      inertiaMaxSpeed: 7000
     });
     L.control.zoom({ position: "topright" }).addTo(map);
     const bounds = [[0, 0], [imageSize.height, imageSize.width]];
@@ -522,7 +433,7 @@ HTML_TEMPLATE = """<!doctype html>
       const compact = window.innerWidth <= 620;
       map.fitBounds(bounds, {
         paddingTopLeft: [24, wide ? 104 : 140],
-        paddingBottomRight: [wide ? 330 : 24, wide || compact ? 36 : 230]
+        paddingBottomRight: [24, wide || compact ? 36 : 230]
       });
     }
 
@@ -558,33 +469,16 @@ HTML_TEMPLATE = """<!doctype html>
         leafletY,
         placement,
         clamped: x !== rawX || y !== rawY,
-        latlng: L.latLng(leafletY, x)
+        latlng: L.latLng(pointLeafletY, pointX)
       };
     });
-
-    function buildRegionHeatPoints(points) {
-      const groups = new Map();
-      for (const d of points) {
-        const key = `${d.region}|${d.cc}`;
-        const entry = groups.get(key) || { count: 0, x: 0, y: 0 };
-        entry.count += 1;
-        entry.x += d.x;
-        entry.y += d.leafletY;
-        groups.set(key, entry);
-      }
-      return [...groups.values()].map(entry => [
-        entry.y / entry.count,
-        entry.x / entry.count,
-        Math.max(0.5, Math.min(1.6, entry.count / 55))
-      ]);
-    }
-
-    const heatPoints = buildRegionHeatPoints(projected);
 
     const CanvasMarkerLayer = L.Layer.extend({
       initialize(points) {
         this.points = points;
-        this.mode = "points";
+        this.pinRevealStart = 0;
+        this.pinRevealDuration = 900;
+        this.pinAnimationFrame = null;
       },
       onAdd(mapInstance) {
         this.map = mapInstance;
@@ -592,17 +486,48 @@ HTML_TEMPLATE = """<!doctype html>
         this.ctx = this.canvas.getContext("2d");
         mapInstance.getPanes().overlayPane.appendChild(this.canvas);
         L.DomEvent.on(this.canvas, "click", this.onClick, this);
-        mapInstance.on("resize viewreset zoomend moveend", this.reset, this);
+        mapInstance.on("resize viewreset zoomend moveend zoom move", this.reset, this);
         this.reset();
       },
       onRemove(mapInstance) {
         L.DomEvent.off(this.canvas, "click", this.onClick, this);
-        mapInstance.off("resize viewreset zoomend moveend", this.reset, this);
+        mapInstance.off("resize viewreset zoomend moveend zoom move", this.reset, this);
         this.canvas.remove();
       },
-      setMode(mode) {
-        this.mode = mode;
-        if (this.ctx) this.draw();
+      pinRevealProgress() {
+        if (!this.pinRevealStart) {
+          return 1;
+        }
+        const ratio = (performance.now() - this.pinRevealStart) / this.pinRevealDuration;
+        if (ratio >= 1) {
+          this.pinRevealStart = 0;
+          return 1;
+        }
+        return Math.min(1, Math.max(0, ratio));
+      },
+      startPinReveal() {
+        this.pinRevealStart = performance.now();
+        if (this.pinAnimationFrame !== null) {
+          return;
+        }
+        this.schedulePinFrame();
+      },
+      stopPinReveal() {
+        if (this.pinAnimationFrame !== null) {
+          cancelAnimationFrame(this.pinAnimationFrame);
+          this.pinAnimationFrame = null;
+        }
+        this.pinRevealStart = 0;
+      },
+      schedulePinFrame() {
+        this.pinAnimationFrame = requestAnimationFrame(() => {
+          this.pinAnimationFrame = null;
+          if (!this.ctx) return;
+          this.draw();
+          if (this.pinRevealStart) {
+            this.schedulePinFrame();
+          }
+        });
       },
       reset() {
         const size = this.map.getSize();
@@ -627,24 +552,87 @@ HTML_TEMPLATE = """<!doctype html>
       draw() {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.viewport.x, this.viewport.y);
-        if (this.mode === "points") this.drawExactPoints(ctx);
-        else if (this.mode === "badges") this.drawExactFlags(ctx);
-        else this.drawRegionBubbles(ctx);
+        this.drawHotZones(ctx);
+        this.drawExactPoints(ctx);
+        if (this.pinRevealStart) {
+          this.schedulePinFrame();
+        }
+      },
+      clusterPoints() {
+        const zoom = this.map.getZoom();
+        const cell = zoom > 1.2 ? 54 : 70;
+        const buckets = new Map();
+        for (const d of this.points) {
+          const p = this.exactPointToCanvas(d);
+          if (p.x < -80 || p.y < -80 || p.x > this.viewport.x + 80 || p.y > this.viewport.y + 80) continue;
+          const key = `${Math.round(p.x / cell)}|${Math.round(p.y / cell)}`;
+          const entry = buckets.get(key) || { x: 0, y: 0, count: 0 };
+          entry.x += p.x;
+          entry.y += p.y;
+          entry.count += 1;
+          buckets.set(key, entry);
+        }
+        return [...buckets.values()].filter(entry => entry.count >= 3).map(entry => ({
+          x: entry.x / entry.count,
+          y: entry.y / entry.count,
+          count: entry.count
+        }));
+      },
+      drawHotZones(ctx) {
+        const clusters = this.clusterPoints();
+        ctx.save();
+        for (const cluster of clusters) {
+          const radius = Math.max(18, Math.min(78, 14 + Math.sqrt(cluster.count) * 8));
+          ctx.beginPath();
+          ctx.globalAlpha = 0.34;
+          ctx.fillStyle = "#00a751";
+          ctx.arc(cluster.x, cluster.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.globalAlpha = 0.72;
+          ctx.strokeStyle = "#00a751";
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([3, 4]);
+          ctx.arc(cluster.x, cluster.y, radius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.globalAlpha = 0.28;
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#00a751";
+          ctx.arc(cluster.x, cluster.y, radius * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       },
       drawExactPoints(ctx) {
-        const zoom = this.map.getZoom();
-        const radius = Math.max(2.1, Math.min(5.2, 3.1 + zoom * 0.55));
-        const pinHeight = Math.max(13, Math.min(24, 17 + zoom * 1.3));
+        const radius = 3.2;
+        const pinHeight = 16;
         const pinWidth = pinHeight * 0.63;
+        const reveal = this.pinRevealProgress();
+        const pinAlpha = 0.25 + 0.75 * reveal;
         ctx.save();
         ctx.lineWidth = 1.25;
         for (const d of this.points) {
           const p = this.exactPointToCanvas(d);
           if (p.x < -20 || p.y < -20 || p.x > this.viewport.x + 20 || p.y > this.viewport.y + 20) continue;
           if (pinReady) {
-            ctx.drawImage(pinIcon, p.x - pinWidth / 2, p.y - pinHeight + 2, pinWidth, pinHeight);
+            const dropOffset = (1 - reveal) * 2.6;
+            const scale = 0.75 + 0.25 * reveal;
+            ctx.save();
+            ctx.globalAlpha = pinAlpha;
+            ctx.drawImage(
+              pinIcon,
+              p.x - (pinWidth * scale) / 2,
+              p.y - pinHeight * scale + 2 + dropOffset,
+              pinWidth * scale,
+              pinHeight * scale
+            );
+            ctx.restore();
           } else {
             ctx.beginPath();
+            ctx.globalAlpha = pinAlpha;
             ctx.fillStyle = statusColors[d.status] || "#10b981";
             ctx.strokeStyle = "rgba(255,255,255,.92)";
             ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
@@ -654,155 +642,8 @@ HTML_TEMPLATE = """<!doctype html>
         }
         ctx.restore();
       },
-      groupByRegion() {
-        const groups = new Map();
-        for (const d of this.points) {
-          const key = `${d.region}|${d.cc}`;
-          const entry = groups.get(key) || { region: d.region, cc: d.cc, count: 0, generators: 0, x: 0, y: 0, lat: 0, lng: 0, statuses: {} };
-          const p = this.pointToCanvas(d);
-          entry.count += 1;
-          entry.generators += Number(d.count || 0);
-          entry.x += p.x;
-          entry.y += p.y;
-          entry.lat += d.latlng.lat;
-          entry.lng += d.latlng.lng;
-          entry.statuses[d.status] = (entry.statuses[d.status] || 0) + 1;
-          groups.set(key, entry);
-        }
-        return [...groups.values()].map(entry => {
-          const topStatus = Object.entries(entry.statuses).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-          return {
-            ...entry,
-            x: entry.x / entry.count,
-            y: entry.y / entry.count,
-            latlng: L.latLng(entry.lat / entry.count, entry.lng / entry.count),
-            topStatus
-          };
-        });
-      },
-      bubbleRadius(entry) {
-        return Math.max(15, Math.min(36, 9 + Math.sqrt(entry.count) * 2.4));
-      },
-      drawRegionBubbles(ctx) {
-        const groups = this.groupByRegion();
-        ctx.save();
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        for (const entry of groups) {
-          const radius = this.bubbleRadius(entry);
-          ctx.beginPath();
-          ctx.fillStyle = countryColors[entry.cc] || "#10b981";
-          ctx.globalAlpha = 0.86;
-          ctx.arc(entry.x, entry.y, radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = 1;
-          ctx.lineWidth = 2.5;
-          ctx.strokeStyle = "rgba(255,255,255,.95)";
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.fillStyle = "rgba(255,255,255,.94)";
-          ctx.arc(entry.x + radius * 0.34, entry.y - radius * 0.34, Math.max(4, radius * 0.18), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.font = `850 ${Math.max(11, Math.min(15, radius * 0.42))}px Inter, system-ui, sans-serif`;
-          ctx.fillText(format.format(entry.count), entry.x, entry.y + 0.5);
-        }
-        ctx.restore();
-      },
-      drawExactFlags(ctx) {
-        const zoom = this.map.getZoom();
-        const flagHeight = Math.max(9, Math.min(17, 11 + zoom * 1.1));
-        const flagWidth = flagHeight * 1.22;
-        const poleHeight = flagHeight + 8;
-        ctx.save();
-        for (const d of this.points) {
-          const p = this.exactPointToCanvas(d);
-          if (p.x < -24 || p.y < -28 || p.x > this.viewport.x + 24 || p.y > this.viewport.y + 24) continue;
-          const x = p.x;
-          const y = p.y;
-          const flagX = x + 1;
-          const flagY = y - poleHeight;
-          ctx.beginPath();
-          ctx.moveTo(x, y - poleHeight + 1);
-          ctx.lineTo(x, y + 2);
-          ctx.lineWidth = 2.8;
-          ctx.strokeStyle = "rgba(255,255,255,.9)";
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(x, y - poleHeight + 1);
-          ctx.lineTo(x, y + 2);
-          ctx.lineWidth = 1.35;
-          ctx.strokeStyle = "rgba(63,63,65,.64)";
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(flagX, flagY);
-          ctx.lineTo(flagX + flagWidth, flagY + flagHeight * 0.08);
-          ctx.lineTo(flagX + flagWidth * 0.78, flagY + flagHeight * 0.5);
-          ctx.lineTo(flagX + flagWidth, flagY + flagHeight * 0.92);
-          ctx.lineTo(flagX, flagY + flagHeight);
-          ctx.closePath();
-          ctx.fillStyle = statusColors[d.status] || countryColors[d.cc] || "#10b981";
-          ctx.fill();
-          ctx.lineWidth = 1.1;
-          ctx.strokeStyle = "rgba(255,255,255,.92)";
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(x, y + 2.5, 2.4, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,255,255,.95)";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(63,63,65,.35)";
-          ctx.stroke();
-        }
-        ctx.restore();
-      },
-      roundRect(ctx, x, y, width, height, radius) {
-        ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
-      },
       onClick(event) {
         const clickPoint = this.map.latLngToLayerPoint(event.latlng);
-        if (this.mode === "points" || this.mode === "badges") {
-          let nearest = null;
-          let nearestDist = Infinity;
-          for (const d of this.points) {
-            const point = this.map.latLngToLayerPoint(d.latlng);
-            const dist = point.distanceTo(clickPoint);
-            if (dist < nearestDist) {
-              nearest = d;
-              nearestDist = dist;
-            }
-          }
-          const threshold = this.mode === "badges" ? 20 : 18;
-          const offset = this.mode === "badges" ? [8, -16] : [0, -6];
-          if (nearest && nearestDist <= threshold) {
-            L.popup({ closeButton: true, offset })
-              .setLatLng(nearest.latlng)
-              .setContent(popupHtml(nearest))
-              .openOn(this.map);
-          }
-          return;
-        }
-        const groups = this.groupByRegion();
-        for (const entry of groups) {
-          const groupPoint = this.map.latLngToLayerPoint(entry.latlng);
-          const hitRadius = this.mode === "badges" ? 34 : this.bubbleRadius(entry) + 8;
-          if (groupPoint.distanceTo(clickPoint) <= hitRadius) {
-            L.popup({ closeButton: true, offset: [0, -8] })
-              .setLatLng(entry.latlng)
-              .setContent(regionPopupHtml(entry))
-              .openOn(this.map);
-            return;
-          }
-        }
         let nearest = null;
         let nearestDist = Infinity;
         for (const d of this.points) {
@@ -822,59 +663,18 @@ HTML_TEMPLATE = """<!doctype html>
       }
     });
 
-    const heatLayer = L.heatLayer(heatPoints, {
-      radius: 44,
-      blur: 28,
-      maxZoom: -1,
-      minOpacity: 0.26,
-      gradient: { 0.18: "#6ee7b7", 0.42: "#22c55e", 0.68: "#f59e0b", 1.0: "#ef4444" }
-    });
     const markerCanvasLayer = new CanvasMarkerLayer(projected);
     window.__markerCanvasLayer = markerCanvasLayer;
 
-    function setMode(mode) {
-      for (const layer of [markerCanvasLayer, heatLayer]) map.removeLayer(layer);
-      if (mode === "points") { markerCanvasLayer.setMode("points"); markerCanvasLayer.addTo(map); }
-      if (mode === "regions") { markerCanvasLayer.setMode("regions"); markerCanvasLayer.addTo(map); }
-      if (mode === "badges") { markerCanvasLayer.setMode("badges"); markerCanvasLayer.addTo(map); }
-      if (mode === "heat") heatLayer.addTo(map);
-      if (mode === "hybrid") { heatLayer.addTo(map); markerCanvasLayer.setMode("points"); markerCanvasLayer.addTo(map); }
-      document.querySelectorAll(".mode-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.mode === mode));
-      document.getElementById("modeLabel").textContent = modeLabels[mode];
-    }
-
-    function countBy(key) {
-      return deployments.reduce((acc, d) => {
-        acc[d[key]] = (acc[d[key]] || 0) + 1;
-        return acc;
-      }, {});
-    }
-
-    function renderLegend(id, counts, colorFn) {
-      const max = Math.max(...Object.values(counts));
-      document.getElementById(id).innerHTML = Object.entries(counts).sort((a,b) => b[1] - a[1]).map(([label, value]) => {
-        const width = Math.max(4, Math.round(value / max * 100));
-        const color = colorFn(label);
-        return `<div class="legend-row"><div class="legend-left"><span class="dot" style="background:${color}"></span><span>${escapeHtml(label)}</span></div><strong>${format.format(value)}</strong></div><div class="bar"><span style="width:${width}%;background:${color}"></span></div>`;
-      }).join("");
-    }
-
     document.getElementById("headerCount").textContent = format.format(projected.length);
-    document.getElementById("totalDeployments").textContent = format.format(projected.length);
-    document.getElementById("totalGenerators").textContent = format.format(projected.reduce((sum, d) => sum + Number(d.count || 0), 0));
-    document.getElementById("countryTotal").textContent = format.format(Object.keys(countBy("cc")).length);
-    renderLegend("statusLegend", countBy("status"), label => statusColors[label] || "#64748b");
-    renderLegend("countryLegend", countBy("cc"), label => countryColors[label] || "#64748b");
-
-    document.querySelectorAll(".mode-btn").forEach(btn => btn.addEventListener("click", () => setMode(btn.dataset.mode)));
     document.getElementById("fitBtn").addEventListener("click", fitMap);
     document.getElementById("fullscreenBtn").addEventListener("click", async () => {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       else await document.exitFullscreen();
       setTimeout(() => map.invalidateSize(), 200);
     });
-
-    setMode("points");
+    markerCanvasLayer.addTo(map);
+    markerCanvasLayer.startPinReveal();
     window.__LSN_MAP_PROOF__ = {
       generatedAt,
       sourceCsv,
@@ -883,7 +683,7 @@ HTML_TEMPLATE = """<!doctype html>
       rows: deployments.length,
       plotted: projected.length,
       clamped: projected.filter(d => d.clamped).length,
-      renderer: "svg-map-canvas-pins-and-region-aggregates",
+      renderer: "final-svg-artwork-canvas-hotzones-pins",
       visualContract: "branded_overview_display_placement_not_gis",
       mapProfile,
       pinSvg: pinIsSvg,
@@ -897,7 +697,8 @@ HTML_TEMPLATE = """<!doctype html>
       },
       markerIcons: document.querySelectorAll(".leaflet-marker-icon").length,
       markerCanvas: document.querySelectorAll("canvas.marker-canvas").length,
-      zoomAnimation: false
+      visibleLayers: ["hot-zones", "pins"],
+      zoomAnimation: true
     };
   </script>
 </body>

@@ -25,8 +25,7 @@ make reference
 # 3) test smoke — demo pipeline, oczekiwane 1200/1200 matched
 make run-demo
 
-# 4) wygenerować review wariant:
-make map-geographic
+# 4) wygenerować finalną mapę review:
 make map-final
 make prototype
 
@@ -59,7 +58,7 @@ Zgeokodować ~1200 wdrożeń generatorów na terenie US/CA/MX z Excela wejściow
 - GeoJSON EPSG:4326 (`clients.geojson`),
 - raporty QA (`geocode_exceptions.csv`),
 - podsumowanie uruchomienia (`run_summary.json`),
-- oraz **statyczne prototypy HTML mapy klienta** do porównania wariantów wizualnych (pinezki / flagi / heatmapa / hybryda / zoom / fullscreen).
+- oraz **statyczną finalną mapę HTML klienta** (jasna mapa GIS/canvas + pinezki + zielone hot-zones + zoom / fullscreen).
 
 Klient (LSN) nie ma jeszcze finalnego designu sekcji mapy. Oczekiwany deliverable to **kilka sensownych propozycji**, nie ciężka aplikacja ani rozbudowana architektura.
 
@@ -78,11 +77,8 @@ Kluczowe targety Makefile:
 | `make reference` | Buduje `data/reference/postal_reference.parquet` z Census/GeoNames (~2 min, ~504 MB) |
 | `make run-demo` | Pipeline na sample z `--reference-mode mock` → oczekiwane **1200/1200** |
 | `make run-prod` | Pipeline na `CLIENT_INPUT=data/input/clients.xlsx` z realnym parquet |
-| `make map-options` | Render `lsn-map-options.html` (branded, na `new-na-map.svg`) |
-| `make map-figma` | Render `lsn-map-figma.html` (Figma node `1715:3527`, `Map Zoom-In`) |
-| `make map-geographic` | Render `lsn-map-geographic.html` (GIS-correct, Albers Equal Area) |
-| `make map-final` | Render `lsn-map-final.html` (final visual GIS variant: light base, small green points, green hot-zones) |
-| `make prototype` | `run-demo` + `map-options` |
+| `make map-final` | Render `lsn-map-final.html` (jedyna aktywna client-facing mapa: final GIS/canvas + hot-zones + pins) |
+| `make prototype` | `run-demo` + `map-final` |
 | `make serve` | Lokalny HTTP na `http://127.0.0.1:8017/` podający `data/output/` |
 | `make test` / `lint` / `typecheck` | pytest (36 testów) / ruff / pyright |
 
@@ -100,9 +96,10 @@ Pipeline **musi** być uruchamiany jako moduł: `python -m src.run_pipeline` (ni
 - `src/enrich.py` — left-join klientów do referencji po `geo_key`
 - `src/qa.py` — checki (bounds, duplikaty, brakujące pola)
 - `src/export.py` — eksport XLSX/CSV/GeoJSON/JSON
-- `src/render_lsn_map_options.py` — **source of truth** dla `lsn-map-options.html` (branded, na artworku klienta)
-- `src/render_lsn_figma_map.py` — render `lsn-map-figma.html` (Figma `Map Zoom-In`)
-- `src/render_lsn_geographic_map.py` — render `lsn-map-geographic.html` (GIS-correct, realne granice w stylu LSN)
+- `src/render_lsn_final_map.py` — **source of truth** dla `lsn-map-final.html` (finalny client-facing renderer)
+- `src/render_lsn_map_options.py` — historyczny artwork renderer, nieaktywna ścieżka review
+- `src/render_lsn_figma_map.py` — historyczny renderer Figma, nieaktywna ścieżka review
+- `src/render_lsn_geographic_map.py` — historyczny GIS proof, nieaktywna ścieżka review
 
 Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--reference` > domyślny parquet > Excel mock > synthetic.
 
@@ -118,31 +115,13 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 ## 4. Bieżący stan repo (2026-07-06)
 
 - Gałąź `main`.
-- Ostatni commit lokalny/na `origin/main` po tej rundzie: **`6408125 feat: enrich GIS renderer styling with flags mode`**.
-- Wszystkie źródła i assety są commitowane i wypchnięte.
-- Aktualny stan roboczy po komicie: czysty (poza ignorowanymi artefaktami: `.venv/`, `data/output/`, `data/reference/*.parquet`, `.local-lab/`).
-- W tej sesji zaktualizowano `src/render_lsn_geographic_map.py`:
-  - doraźny styl GIS mapy bazującej na Natural Earth:
-    - kolory obszarów US/CA/MX pod brand,
-    - obrys państw i granice stanów/prowincji,
-    - opcjonalna siatka geograficzna,
-    - ciemniejszy, stonowany background.
-  - rozszerzony HTML `lsn-map-geographic.html`:
-    - tryb `Flags` (canvasowe flagi) obok `Points`, `Clusters`, `Heatmap`, `Heat + Points`,
-    - `Fit` + `Fullscreen`,
-    - lepszy, stabilny overlay geograficzny na `CRS.Simple` + image overlay.
-  - dodatkowe opcje CLI: `--grid-spacing`, `--no-grid`.
-- Komendy uruchomieniowe sprawdzone po zmianach:
-  - `make map-geographic` ✅
-  - `make prototype-geographic` ✅
-  - `python3 -m py_compile src/render_lsn_geographic_map.py` ✅
-  - `ruff check src/render_lsn_geographic_map.py` ✅
+- Bieżący WIP upraszcza deliverable do jednej finalnej mapy.
+- Aktywna ścieżka: `src/render_lsn_final_map.py` → `make map-final` → `data/output/lsn-map-final.html`.
+- `Makefile` nie wystawia już targetów porównawczych `map-options`, `map-figma`, `map-geographic`, `map-d3`.
+- Finalna mapa używa GIS/canvas basemapy stylowanej pod referencję klienta; nie używamy uproszczonego artwork overlay jako finalu.
 
 ### Generated outputs (`data/output/`, gitignored — nie commitować)
-- `lsn-map-options.html` — branded prototype, tryby `Pins`/`Regions`/`Flags`/`Heatmap`/`Heat + Pins` + fit + fullscreen. **Artefakt — nie edytować ręcznie**, regenerować przez `make map-options`.
-- `lsn-map-figma.html` — Figma `Map Zoom-In`, dwa warianty `Default`/`Variant2` stacked.
-- `lsn-map-geographic.html` — GIS-correct, Albers Equal Area, tryby exact points/flags/clusters/heat/heat+points.
-- `lsn-map-final.html` — finalny wariant GIS-correct na jasnym, neutralnym basemapie; domyślnie `Hot-zones` + `Points`, z opcjami `Pins`, `Flags`, `Fit`, `Fullscreen`.
+- `lsn-map-final.html` — jedyny aktywny client-facing output: D3/GIS final, jasna mapa, jeziora, Karaiby/Hawaje w tej samej mapie (bez insetu), zielone hot-zones, piny SVG, Points toggle, zoom/fullscreen.
 - `clients_geocoded.csv`, `clients_enriched.xlsx`, `clients.geojson`, `geocode_exceptions.csv`, `run_summary.json`.
 - `map.html` — starszy MapLibre dashboard; **artefakt, nie source of truth**.
 
@@ -167,7 +146,15 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 - Figma node `1715:3527` = `Map Zoom-In` component — odwzorowany w `render_lsn_figma_map.py`.
 
 ### Gates / jakość
-- `make test` → **36 passed**.
+- 2026-07-06 latest final-map fixes:
+  - finalny renderer nie używa już Leafleta; HTML runtime to D3 zoom + jeden wspólny transform dla basemapy, pinów i hot-zon.
+  - naprawiony projected extent: próbkuje całe krawędzie lon/lat, więc południowy Meksyk nie jest ucinany ani snapowany do jednej dolnej linii (`bottomLine: 0`).
+  - admin1 granice są z Natural Earth 10m, bo 50m admin1 nie zawierał Meksyku; finalny SVG ma `subdivisionPaths: 97` zamiast 64.
+  - hot-zones reclusterują się responsywnie na zoom/pinch/resize/mobile przez `visualViewport` + aktualny viewport/zoom.
+  - ręczne białe owale jezior zostały usunięte; finalny SVG ma `ellipses: 0`.
+  - Hawaje są display-only relokowane w tym samym SVG (`hawaii-display-inset`, `translate(255 1325) scale(0.62)`), zgodnie z referencją klienta, bez osobnej mapy HTML.
+  - następny znany task wizualny: filtr mikro-elementów/wysp względem oryginalnego SVG klienta; najlepiej dodać area/extent filter w generatorze, nie edytować ręcznie SVG.
+- `make test` → **49 passed**.
 - `make lint` → all checks passed.
 - `make typecheck` → **fails z 16 błędami pyright/pandas-geopandas typing** (zapisany **residual risk**, znany, nie blokuje).
 - W sesji bez `.venv` (brak pandas globalnie) działa tylko `py_compile` + wywołania rendererów gdy CSV już istnieje.
@@ -176,13 +163,10 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 
 ## 6. Rekomendowany kierunek
 
-1. `src/render_lsn_map_options.py` = source of truth prototypu branded.
-2. Pierwsza wersja: **statyczny HTML bez npm/build step** — klient potrzebuje porównania koncepcji.
-3. Dla mapy klienta: Leaflet z `CRS.Simple` / image overlay (bo `.ai`/`.svg` to nie projekcja GIS).
-4. Pozycje na artworku traktować jako **regionalne agregaty**, dobre do koncepcji, nie do precyzji.
-5. Równolegle trzymać wariant „real geography" (`lsn-map-geographic.html`) jako kierunek dla exact deployment points.
-6. **Nie budować** od razu WordPress bloku / React appki. Najpierw client-review HTML + screenshoty/proof.
-7. Jeśli klient chce dokładne punkty na brandowanej mapie → poprosić o **georeferencję / CRS / control points** albo przygotować własną mapę GIS w ich stylu.
+1. `src/render_lsn_final_map.py` = source of truth finalnej mapy.
+2. Generować tylko `data/output/lsn-map-final.html` przez `make map-final` albo `make prototype`.
+3. Final ma zachować dopracowane zachowanie canvas: animowane piny, hot-zones z fade przy zoomie, Points jako osobna warstwa.
+4. Jeśli klient chce dokładne punkty na ich oryginalnym artworku → poprosić o **georeferencję / CRS / control points**.
 
 ---
 
@@ -191,7 +175,7 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 - **Nie commitować** realnych danych klienta (`data/input/*.xlsx` gitignored).
 - **Nie commitować** dużych generated outputów z `data/output/` (gitignored), chyba że wyraźnie wybrane jako deliverable.
 - **Nie commitować** rootowego `NA_Map_Assets*.zip` (gitignored — dostarczony załącznik).
-- **Nie edytować ręcznie** `data/output/*.html` — generować przez `make map-*`.
+- **Nie edytować ręcznie** `data/output/*.html` — generować przez `make map-final`.
 - **Nie traktować** `data/output/map.html` jako źródła prawdy.
 - **Nie revertować** istniejących zmian bez wyraźnej zgody użytkownika.
 - **Nie overengineerować** — najbliższy deliverable to porównywalny klikalny prototyp + plan.

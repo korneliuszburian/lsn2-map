@@ -2,7 +2,7 @@
 
 Pipeline geokoduje deploymenty generatorów z Excela dla US/CA/MX i eksportuje dane map-ready: XLSX, CSV, GeoJSON, exceptions CSV oraz run summary.
 
-Aktualny cel repo jest szerszy niż sam pipeline: przygotować powtarzalny prototyp mapy klienta LSN/North America z wariantami Pins, Regions, Flags, Heatmap i Heat + Pins. Szczegóły wykonawcze są w `GOAL.md` i `docs/lsn-map-state-and-plan-2026-06-19.md`.
+Aktualny klient-facing deliverable to jedna finalna mapa LSN/North America: jasna GIS/canvas mapa + zielone hot-zones + animowane piny + Points toggle + smooth zoom/fullscreen. Starsze warianty porównawcze nie są już aktywną ścieżką review.
 
 ## Setup
 
@@ -18,14 +18,10 @@ Używaj `.venv`. Globalne `python3` w aktualnym środowisku nie ma kompletu zale
 
 ```bash
 make prototype          # demo pipeline + client-map HTML
-make prototype-geographic # demo pipeline + GIS-correct styled map HTML
-make map-final          # GIS-correct final-style HTML (light basemap + hot-zones + points)
+make map-final          # final client-facing HTML (GIS/canvas map + hot-zones + pins)
 make run-demo           # sample workbook with mock reference, 1200/1200 demo rows
 make run-parquet-sample # sample workbook with real local parquet, expected low demo match
 make run-prod           # CLIENT_INPUT=data/input/clients.xlsx with parquet reference
-make map-options        # render data/output/lsn-map-options.html from clients_geocoded.csv
-make map-figma          # render data/output/lsn-map-figma.html matching Figma Map Zoom-In node
-make map-geographic     # render data/output/lsn-map-geographic.html from clients_geocoded.csv
 make serve              # serve data/output at http://127.0.0.1:8017/
 make preview            # regenerate prototype, then serve it in the foreground
 make test               # pytest
@@ -41,15 +37,6 @@ python -m src.run_pipeline \
   --input data/sample/north_america_generator_mapping_template.xlsx \
   --output data/output \
   --reference-mode mock
-python -m src.render_lsn_map_options \
-  --input data/output/clients_geocoded.csv \
-  --map-image data/assets/client-map/new-na-map.svg \
-  --pin-image data/assets/client-map/pin-na-map.svg \
-  --output data/output/lsn-map-options.html
-python -m src.render_lsn_figma_map \
-  --input data/output/clients_geocoded.csv \
-  --map-image data/assets/client-map/new-na-map.svg \
-  --output data/output/lsn-map-figma.html
 python -m src.render_lsn_final_map \
   --input data/output/clients_geocoded.csv \
   --output data/output/lsn-map-final.html \
@@ -85,28 +72,15 @@ Generated under `data/output/`:
 - `clients.geojson`
 - `geocode_exceptions.csv`
 - `run_summary.json`
-- `lsn-map-options.html`
-- `lsn-map-figma.html`
-- `lsn-map-geographic.html`
 - `lsn-map-final.html`
-- `lsn-north-america-geographic.svg`
-- `lsn-north-america-final.svg`
 
-`data/output/` is ignored. Regenerate the map prototype with `make prototype`; the source of truth is `src/render_lsn_map_options.py`.
+`data/output/` is ignored. Regenerate the final map with `make prototype` or `make map-final`; the source of truth is `src/render_lsn_final_map.py`.
 
-The supplied LSN artwork is not a georeferenced GIS basemap. The current renderer supports SVG/PNG image overlays, canvas pins, regional bubbles, exact flag markers, heatmap and heat+pins views. It uses deterministic regional anchors for branded overview performance. Use the GIS-correct prototype, or georeference the artwork with control points, for trustworthy exact lon/lat placement.
-
-The Figma-aligned prototype is `data/output/lsn-map-figma.html`. It implements Figma node `1715:3527` (`Map Zoom-In`) as two stacked `804x880` variants: overview and zoom crop. It keeps the Figma crop ratios, but draws points and cluster circles dynamically from `clients_geocoded.csv` instead of baking them into an image.
-
-The GIS-correct prototype is `data/output/lsn-map-geographic.html`. It generates an LSN-styled SVG basemap from Natural Earth boundaries using North America Albers Equal Area projection, then projects deployment lon/lat into the same coordinate space.
-
-The final visual variant is `data/output/lsn-map-final.html`. It keeps GIS projection correctness, but applies a light neutral land style, white boundaries, small green points, and green hot-zones with dashed outlines (`Points`/`Hot-zones`/`Pins`/`Flags` modes). It is intended as the main client-facing review candidate.
+The supplied LSN artwork is not a georeferenced GIS basemap. The active final renderer therefore uses a GIS-correct generated basemap styled to match the client reference, with Great Lakes cutouts, Caribbean visual islands, a Hawaii inset when relevant, canvas hot-zones, animated SVG pins, Points/Pins/Hot Zones controls, and smooth zoom.
 
 Local preview URL after `make serve`:
 
 ```text
-http://127.0.0.1:8017/lsn-map-options.html
-http://127.0.0.1:8017/lsn-map-figma.html
 http://127.0.0.1:8017/lsn-map-final.html
 ```
 
@@ -118,7 +92,7 @@ Key files:
 
 - `north-america-map.ai` - original supplied AI/PDF artwork.
 - `north-america-map-ai-web.png` - browser-ready map artwork.
-- `new-na-map.svg` - current vector North America artwork from `NA_Map_Assets (1).zip`; default for `make map-options`.
+- `new-na-map.svg` - client vector reference artwork, used as visual/design reference.
 - `pin-na-map.svg` - current pin SVG from `NA_Map_Assets (1).zip`; default pin marker.
 - `full-na-map.ai` - source AI/PDF from the new asset zip.
 - `pin-na-map.ai` - source pin AI/PDF from the new asset zip.
@@ -127,10 +101,9 @@ Key files:
 ## Current Known State
 
 - Last full gate before the 2026-06-30 asset update: `pytest` passing and `ruff` passing.
-- 2026-06-30 asset update gate: standalone `src.render_lsn_map_options`, `src.render_lsn_figma_map`, `make map-options`, and `make map-figma` passing with `new-na-map.svg`.
+- 2026-07-06 final-map reset: active client-facing output is only `data/output/lsn-map-final.html`, generated from `src.render_lsn_final_map`.
 - `pyright`: currently failing on pandas/GeoPandas typing issues.
-- Last full `make prototype`: passing; after 2026-06-30 asset update, only the standalone renderer was rerun.
-- Map renderer: canvas pins plus regional aggregates, not 1200 DOM markers.
+- Map renderer: one canvas overlay with green hot-zones plus SVG pins, not 1200 DOM markers.
 - Visual proof is local under `.local-lab/proof/lsn-map/` and `.local-lab/proof/lsn-map-2026-06-30/` and is ignored by git.
 
 2026-06-30 note: in the current shell session `.venv` was absent, so only the standalone renderer was verified with global `python3`. Recreate/activate `.venv` before running full pipeline/test/lint gates.

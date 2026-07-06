@@ -586,7 +586,9 @@ HTML_TEMPLATE = """<!doctype html>
       border: 1px solid rgba(30, 44, 42, .14) !important;
       box-shadow: 0 14px 34px rgba(15, 23, 42, .16) !important;
     }
+    .leaflet-map-error { pointer-events: none; }
     .leaflet-control-zoom a {
+
       border: 0 !important;
       background: rgba(255,255,255,.96) !important;
       color: #1e2c2a !important;
@@ -656,6 +658,7 @@ HTML_TEMPLATE = """<!doctype html>
         rows.map(([k, v]) => `<div style="margin-top:8px"><div style=\"font-size:11px;color:rgba(255,255,255,.55);font-weight:700;text-transform:uppercase;letter-spacing:.6px\">${escapeHtml(k)}</div><div>${escapeHtml(v)}</div></div>`).join("");
     }
 
+    function initFinalMap() {
     const map = L.map("map", {
       crs: L.CRS.Simple,
       minZoom: -1.7,
@@ -677,6 +680,8 @@ HTML_TEMPLATE = """<!doctype html>
     }));
 
     const hotZones = buildHotZones(projected, hotZoneConfig.distance);
+
+    fitMap();
 
     function fitMap() {
       const leftPadding = 16;
@@ -726,6 +731,7 @@ HTML_TEMPLATE = """<!doctype html>
         const size = this.map.getSize();
         const topLeft = this.map.containerPointToLayerPoint([0, 0]);
         this.topLeft = topLeft;
+        L.DomUtil.setPosition(this.canvas, topLeft);
         const ratio = window.devicePixelRatio || 1;
         this.canvas.width = Math.round(size.x * ratio);
         this.canvas.height = Math.round(size.y * ratio);
@@ -952,7 +958,6 @@ HTML_TEMPLATE = """<!doctype html>
 
     const pointLayer = new MapPointLayer(projected);
     pointLayer.addTo(map);
-    fitMap();
 
     let activeMode = "hot-zones";
     const pointsInside = projected.filter(d => d.insideViewport).length;
@@ -998,6 +1003,35 @@ HTML_TEMPLATE = """<!doctype html>
       displayAdjusted: projected.filter(d => d.displayAdjusted).length,
       pointLayer: "canvas"
     };
+
+  }
+
+  if (typeof L === "undefined" || typeof L.map !== "function") {
+    const status = document.createElement("div");
+    status.className = "leaflet-map-error";
+    status.innerHTML = `<div>Leaflet library failed to load.<br/>Please check network access to CDN and reload.</div>`;
+    status.style.cssText = "position:fixed;inset:16px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.9);border:1px solid rgba(30,44,42,.2);border-radius:10px;padding:12px;z-index:1000;max-width:420px;font:600 13px/1.35 Inter, sans-serif;color:#1e2c2a;text-align:center;";
+    status.style.boxShadow = "0 14px 34px rgba(15,23,42,.12)";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    document.body.appendChild(status);
+  } else {
+    try {
+      initFinalMap();
+    } catch (error) {
+      const errorStatus = document.createElement("div");
+      errorStatus.className = "leaflet-map-error";
+      errorStatus.innerHTML = `<div>Map init error: ${error.message}</div>`;
+      errorStatus.style.cssText = "position:fixed;inset:16px;display:flex;align-items:center;justify-content:center;background:rgba(255,245,245,.95);border:1px solid #fca5a5;border-radius:10px;padding:12px;z-index:1000;max-width:420px;font:600 13px/1.35 Inter, sans-serif;color:#7f1d1d;text-align:center;";
+      errorStatus.style.boxShadow = "0 14px 34px rgba(15,23,42,.12)";
+      errorStatus.setAttribute("role", "status");
+      errorStatus.setAttribute("aria-live", "assertive");
+      document.body.appendChild(errorStatus);
+      throw error;
+    }
+  }
+
+
   </script>
 </body>
 </html>

@@ -1,5 +1,8 @@
 # AGENTS.md
 
+> ⚠️ **PIERWSZA RZECZ po odpaleniu tego repo: przeczytaj `handoff.md` od deski do deski.**
+> `handoff.md` to single source of truth dla bieżącego stanu pracy, decyzji, known-issues i instrukcji uruchomienia na nowej maszynie (venv, `make reference`, `make prototype`). Zanim cokolwiek zmienisz, zacznij tam.
+
 ## Active Task
 
 Stan na 2026-06-30: pierwotny brief jest pokryty prototypem, a nowa paczka `NA_Map_Assets (1).zip` została rozpoznana i wpięta jako aktualny branded wariant mapy.

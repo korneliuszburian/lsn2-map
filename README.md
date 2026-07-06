@@ -19,6 +19,7 @@ Używaj `.venv`. Globalne `python3` w aktualnym środowisku nie ma kompletu zale
 ```bash
 make prototype          # demo pipeline + client-map HTML
 make prototype-geographic # demo pipeline + GIS-correct styled map HTML
+make map-final          # GIS-correct final-style HTML (light basemap + hot-zones + points)
 make run-demo           # sample workbook with mock reference, 1200/1200 demo rows
 make run-parquet-sample # sample workbook with real local parquet, expected low demo match
 make run-prod           # CLIENT_INPUT=data/input/clients.xlsx with parquet reference
@@ -49,6 +50,11 @@ python -m src.render_lsn_figma_map \
   --input data/output/clients_geocoded.csv \
   --map-image data/assets/client-map/new-na-map.svg \
   --output data/output/lsn-map-figma.html
+python -m src.render_lsn_final_map \
+  --input data/output/clients_geocoded.csv \
+  --output data/output/lsn-map-final.html \
+  --basemap-output data/output/lsn-north-america-final.svg \
+  --pin-image data/assets/client-map/pin-na-map.svg
 ```
 
 Build local postal reference:
@@ -82,7 +88,9 @@ Generated under `data/output/`:
 - `lsn-map-options.html`
 - `lsn-map-figma.html`
 - `lsn-map-geographic.html`
+- `lsn-map-final.html`
 - `lsn-north-america-geographic.svg`
+- `lsn-north-america-final.svg`
 
 `data/output/` is ignored. Regenerate the map prototype with `make prototype`; the source of truth is `src/render_lsn_map_options.py`.
 
@@ -90,13 +98,16 @@ The supplied LSN artwork is not a georeferenced GIS basemap. The current rendere
 
 The Figma-aligned prototype is `data/output/lsn-map-figma.html`. It implements Figma node `1715:3527` (`Map Zoom-In`) as two stacked `804x880` variants: overview and zoom crop. It keeps the Figma crop ratios, but draws points and cluster circles dynamically from `clients_geocoded.csv` instead of baking them into an image.
 
-The GIS-correct prototype is `data/output/lsn-map-geographic.html`. It generates a new LSN-styled SVG basemap from Natural Earth boundaries using North America Albers Equal Area projection, then projects deployment lon/lat into the same coordinate space. Demo data currently has 181 raw outside/coastal records that are display-snapped and counted in runtime proof as `displayAdjusted`.
+The GIS-correct prototype is `data/output/lsn-map-geographic.html`. It generates an LSN-styled SVG basemap from Natural Earth boundaries using North America Albers Equal Area projection, then projects deployment lon/lat into the same coordinate space.
+
+The final visual variant is `data/output/lsn-map-final.html`. It keeps GIS projection correctness, but applies a light neutral land style, white boundaries, small green points, and green hot-zones with dashed outlines (`Points`/`Hot-zones`/`Pins`/`Flags` modes). It is intended as the main client-facing review candidate.
 
 Local preview URL after `make serve`:
 
 ```text
 http://127.0.0.1:8017/lsn-map-options.html
 http://127.0.0.1:8017/lsn-map-figma.html
+http://127.0.0.1:8017/lsn-map-final.html
 ```
 
 ## Client Map Assets

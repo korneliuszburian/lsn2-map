@@ -25,12 +25,26 @@ make reference
 # 3) test smoke — demo pipeline, oczekiwane 1200/1200 matched
 make run-demo
 
-# 4) prototyp mapy klienta (branded, na new-na-map.svg)
+# 4) wygenerować review wariant:
+make map-geographic
+make map-final
 make prototype
 
 # 5) podgląd w przeglądarce
-make serve   # http://127.0.0.1:8017/lsn-map-options.html
+make serve   # http://127.0.0.1:8017/lsn-map-final.html
 ```
+
+Aktualny check list dla tej tury:
+- `make map-final` ✅
+- `python -m py_compile src/render_lsn_final_map.py` ✅
+- `make test` ✅ (`36 passed`)
+- `make lint` ✅
+- `make typecheck` ❌ (brak `pyright` w lokalnym PATH)
+
+Wygenerowane artefakty (do odtworzenia / nie commitujemy):
+- `data/output/lsn-map-final.html`
+- `data/output/lsn-north-america-final.svg`
+- `data/output/clients_geocoded.csv`
 
 Wszystkie source'y, assety artworku i kod rendererów **są w repo** — niczego nie trzeba dogrywać ręcznie.
 Jedyny nie-commitowany element to `data/reference/postal_reference.parquet` (build artifact, gitignored) → przebudowywany przez `make reference`.
@@ -67,6 +81,7 @@ Kluczowe targety Makefile:
 | `make map-options` | Render `lsn-map-options.html` (branded, na `new-na-map.svg`) |
 | `make map-figma` | Render `lsn-map-figma.html` (Figma node `1715:3527`, `Map Zoom-In`) |
 | `make map-geographic` | Render `lsn-map-geographic.html` (GIS-correct, Albers Equal Area) |
+| `make map-final` | Render `lsn-map-final.html` (final visual GIS variant: light base, small green points, green hot-zones) |
 | `make prototype` | `run-demo` + `map-options` |
 | `make serve` | Lokalny HTTP na `http://127.0.0.1:8017/` podający `data/output/` |
 | `make test` / `lint` / `typecheck` | pytest (36 testów) / ruff / pyright |
@@ -127,6 +142,7 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 - `lsn-map-options.html` — branded prototype, tryby `Pins`/`Regions`/`Flags`/`Heatmap`/`Heat + Pins` + fit + fullscreen. **Artefakt — nie edytować ręcznie**, regenerować przez `make map-options`.
 - `lsn-map-figma.html` — Figma `Map Zoom-In`, dwa warianty `Default`/`Variant2` stacked.
 - `lsn-map-geographic.html` — GIS-correct, Albers Equal Area, tryby exact points/flags/clusters/heat/heat+points.
+- `lsn-map-final.html` — finalny wariant GIS-correct na jasnym, neutralnym basemapie; domyślnie `Hot-zones` + `Points`, z opcjami `Pins`, `Flags`, `Fit`, `Fullscreen`.
 - `clients_geocoded.csv`, `clients_enriched.xlsx`, `clients.geojson`, `geocode_exceptions.csv`, `run_summary.json`.
 - `map.html` — starszy MapLibre dashboard; **artefakt, nie source of truth**.
 

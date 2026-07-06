@@ -5,7 +5,7 @@ MAP_IMAGE ?= data/assets/client-map/new-na-map.svg
 PIN_IMAGE ?= data/assets/client-map/pin-na-map.svg
 PORT ?= 8017
 
-.PHONY: reference reference-force run run-demo run-auto run-parquet-sample run-prod map-options map-figma map-geographic prototype prototype-figma prototype-geographic serve preview test lint typecheck clean all
+.PHONY: reference reference-force run run-demo run-auto run-parquet-sample run-prod map-options map-figma map-geographic map-final prototype prototype-figma prototype-geographic serve preview test lint typecheck clean all
 
 reference:
 	python -m src.build_reference --output data/reference/postal_reference.parquet
@@ -35,6 +35,9 @@ map-figma:
 
 map-geographic:
 	python -m src.render_lsn_geographic_map --input $(OUTPUT_DIR)/clients_geocoded.csv --output $(OUTPUT_DIR)/lsn-map-geographic.html --basemap-output $(OUTPUT_DIR)/lsn-north-america-geographic.svg
+
+map-final:
+	python -m src.render_lsn_final_map --input $(OUTPUT_DIR)/clients_geocoded.csv --output $(OUTPUT_DIR)/lsn-map-final.html --basemap-output $(OUTPUT_DIR)/lsn-north-america-final.svg
 
 prototype: run-demo map-options
 

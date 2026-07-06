@@ -39,6 +39,14 @@ Główny pipeline:
 - `src/render_lsn_map_options.py`
 - testy w `tests/`
 
+### Update stanu 2026-07-06 (final style map)
+
+- dodano nowy GIS renderer finalny: `src/render_lsn_final_map.py`
+- nowy make target: `make map-final` (output `data/output/lsn-map-final.html`, basemap `data/output/lsn-north-america-final.svg`)
+- nowy wariant default: `Hot-zones` (hot-zony + punkty), plus przełączniki `Points`, `Pins`, `Flags`
+- `map-geographic` zachowany jako niezależny porównawczy wariant, nie został podmieniony
+- wymuszona zasada: `new-na-map.svg`/`full-na-map.ai` są źródłem wizualnym, a nie georeferencją punktów
+
 Ważny aktualny dirty/untracked kontekst:
 
 - `AGENTS.md`

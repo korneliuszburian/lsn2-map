@@ -1,10 +1,25 @@
 # /goal - domknąć LSN map end-to-end, najpierw plan i cleanup, potem implementacja
 
+## Status wykonania - 2026-07-06
+
+Nowy etap: przygotowany został wariant finalny GIS-correct, który ma spełniać docelowe wymagania wizualne (jasne tło, białe granice, małe zielone punkty, zielone hot-zones bez czerwono-żółtej heatmapy) i nie blokuje istniejących porównawczych rendererów.
+
+- dodany nowy source renderer: `src/render_lsn_final_map.py`
+- dodany nowy target: `make map-final` → `data/output/lsn-map-final.html` + `data/output/lsn-north-america-final.svg`
+- target `map-final` używa tego samego GIS flow co `map-geographic` (Natural Earth + Albers Equal Area), ale inny styl + nowe UI (tryby: Hot-zones, Points, Pins, Flags + Fit + Fullscreen)
+- zachowany `make map-geographic` jako oddzielny wariant porównawczy
+- styl finalny domyślnie pokazuje `Hot-zones + Points`
+- finalnie wyraźnie utrzymana zasada: dostarczony `.ai/.svg` to asset wizualny, nie źródło prawdy geograficznej
+
 ## Status wykonania - 2026-06-30
 
-Goal pozostaje wykonany jako prototyp porównawczy, a bieżący WIP aktualizuje branded mapę po otrzymaniu `NA_Map_Assets (1).zip`.
+Początkowy milestone 2026-06-30 dotyczył finalizacji porównawczych prototypów na nowym `NA_Map_Assets (1).zip`.
 
-Potwierdzone w bieżącej sesji:
+## Status wykonania - 2026-06-30 (archiwum)
+
+Goal pozostawał wykonany jako prototyp porównawczy, a bieżący WIP aktualizował branded mapę po otrzymaniu `NA_Map_Assets (1).zip`.
+
+Potwierdzone w tamtej sesji:
 
 - nowy asset `NEW NA MAP.svg` został przeniesiony do `data/assets/client-map/new-na-map.svg`;
 - nowy asset `Pin_NA_Map.svg` został przeniesiony do `data/assets/client-map/pin-na-map.svg`;

@@ -1,4 +1,4 @@
-"""Render the final client-facing LSN map on the supplied North America artwork."""
+"""Render the final client-facing LSN2 map on the supplied North America artwork."""
 
 from __future__ import annotations
 
@@ -179,12 +179,12 @@ def _parse_int(value: str | None, default: int) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render final LSN map")
+    parser = argparse.ArgumentParser(description="Render final LSN2 map")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--map-image", default=DEFAULT_MAP_IMAGE, help="Path to browser-ready SVG/PNG artwork")
     parser.add_argument("--pin-image", default=DEFAULT_PIN_IMAGE, help="Path to browser-ready SVG/PNG pin")
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
-    parser.add_argument("--title", default="LSN North America", help="Title shown in the prototype")
+    parser.add_argument("--title", default="LSN2 North America", help="Title shown in the prototype")
     args = parser.parse_args()
 
     input_path = Path(args.input)

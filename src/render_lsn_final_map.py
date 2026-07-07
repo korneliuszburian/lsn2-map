@@ -1,4 +1,4 @@
-"""Render a final-map variant with GIS-correct geometry and light LSN styling."""
+"""Render a final-map variant with GIS-correct geometry and light LSN2 styling."""
 
 from __future__ import annotations
 
@@ -56,7 +56,9 @@ PROJECTION = (
 SOURCES = {
     "admin0": "https://naturalearth.s3.amazonaws.com/50m_cultural/ne_50m_admin_0_countries.zip",
     "admin1": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip",
+    "lakes": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_lakes.zip",
 }
+MIN_VISIBLE_LAKE_AREA_M2 = 2_000_000_000
 
 MAIN_VIEWPORT_EXTENT_LON_LAT = (-170.0, 9.0, -50.0, 84.0)
 SHORT_MAP_COMPONENT_MAX_LAT = 66.5
@@ -180,7 +182,7 @@ def render_html(
         raise ValueError(f"No geocoded deployments found in {input_path}")
 
     transformer = Transformer.from_crs("EPSG:4326", PROJECTION, always_xy=True)
-    admin0, admin1 = load_boundaries(cache_dir)
+    admin0, admin1, lakes = load_boundaries(cache_dir)
 
     main_extent = projected_extent_box(transformer, *MAIN_VIEWPORT_EXTENT_LON_LAT)
     short_extent = main_extent
@@ -189,6 +191,9 @@ def render_html(
 
     projected_admin0 = project_boundaries(admin0, transformer, main_extent, cutout=hawaii_cutout, simplify_m=2_500)
     projected_admin1 = project_boundaries(admin1, transformer, main_extent, cutout=hawaii_cutout, simplify_m=900)
+    projected_lakes = filter_visible_lakes(
+        project_boundaries(lakes, transformer, main_extent, cutout=hawaii_cutout, simplify_m=1_200)
+    )
     short_projected_admin0 = project_boundaries(
         admin0,
         transformer,
@@ -205,23 +210,39 @@ def render_html(
         simplify_m=900,
         component_max_lat=SHORT_MAP_COMPONENT_MAX_LAT,
     )
+    short_projected_lakes = filter_visible_lakes(
+        project_boundaries(
+            lakes,
+            transformer,
+            short_extent,
+            cutout=hawaii_cutout,
+            simplify_m=1_200,
+            component_max_lat=SHORT_MAP_COMPONENT_MAX_LAT,
+        )
+    )
     hawaii_admin0 = project_boundaries(admin0, transformer, hawaii_extent, simplify_m=1_200)
     hawaii_admin1 = project_boundaries(admin1, transformer, hawaii_extent, simplify_m=600)
+    hawaii_lakes = filter_visible_lakes(project_boundaries(lakes, transformer, hawaii_extent, simplify_m=600))
 
     projected_union = unary_union([geom for _, geom in projected_admin0])
     short_projected_union = unary_union([geom for _, geom in short_projected_admin0])
     hawaii_projected_union = unary_union([geom for _, geom in hawaii_admin0]) if hawaii_admin0 else None
-    display_union = projected_union.buffer(-12_000)
+    projected_land_mask = land_without_lakes(projected_union, projected_lakes)
+    short_projected_land_mask = land_without_lakes(short_projected_union, short_projected_lakes)
+    hawaii_projected_land_mask = (
+        land_without_lakes(hawaii_projected_union, hawaii_lakes) if hawaii_projected_union else None
+    )
+    display_union = projected_land_mask.buffer(-12_000)
     if display_union.is_empty:
-        display_union = projected_union
-    short_display_union = short_projected_union.buffer(-12_000)
+        display_union = projected_land_mask
+    short_display_union = short_projected_land_mask.buffer(-12_000)
     if short_display_union.is_empty:
-        short_display_union = short_projected_union
+        short_display_union = short_projected_land_mask
     hawaii_display_union: BaseGeometry
-    if hawaii_projected_union:
-        hawaii_display_union = hawaii_projected_union.buffer(-4_000)
+    if hawaii_projected_land_mask:
+        hawaii_display_union = hawaii_projected_land_mask.buffer(-4_000)
         if hawaii_display_union.is_empty:
-            hawaii_display_union = hawaii_projected_union
+            hawaii_display_union = hawaii_projected_land_mask
     else:
         hawaii_display_union = None
 
@@ -236,6 +257,7 @@ def render_html(
     basemap_svg = render_basemap_svg(
         projected_admin0,
         projected_admin1,
+        projected_lakes,
         viewport,
         projected_union,
         transformer,
@@ -247,6 +269,7 @@ def render_html(
     short_basemap_svg = render_basemap_svg(
         short_projected_admin0,
         short_projected_admin1,
+        short_projected_lakes,
         short_viewport,
         short_projected_union,
         transformer,
@@ -261,6 +284,7 @@ def render_html(
         hawaii_basemap_svg = render_basemap_svg(
             hawaii_admin0,
             hawaii_admin1,
+            hawaii_lakes,
             hawaii_viewport,
             hawaii_projected_union,
             transformer,
@@ -274,6 +298,45 @@ def render_html(
         write_text(hawaii_basemap_svg, hawaii_basemap_output)
     else:
         write_text(basemap_svg, hawaii_basemap_output)
+    basemap_no_lakes_svg = render_basemap_svg(
+        projected_admin0,
+        projected_admin1,
+        [],
+        viewport,
+        projected_union,
+        transformer,
+        grid_spacing=grid_spacing,
+        show_grid=show_grid,
+        width=WIDTH,
+        height=HEIGHT,
+    )
+    short_basemap_no_lakes_svg = render_basemap_svg(
+        short_projected_admin0,
+        short_projected_admin1,
+        [],
+        short_viewport,
+        short_projected_union,
+        transformer,
+        grid_spacing=grid_spacing,
+        show_grid=show_grid,
+        width=WIDTH,
+        height=HEIGHT,
+    )
+    if hawaii_admin0 and hawaii_viewport is not None:
+        hawaii_basemap_no_lakes_svg = render_basemap_svg(
+            hawaii_admin0,
+            hawaii_admin1,
+            [],
+            hawaii_viewport,
+            hawaii_projected_union,
+            transformer,
+            grid_spacing=0,
+            show_grid=False,
+            width=HAWAII_WIDTH,
+            height=HAWAII_HEIGHT,
+        )
+        basemap_no_lakes_svg = inject_hawaii_display_inset(basemap_no_lakes_svg, hawaii_basemap_no_lakes_svg)
+        short_basemap_no_lakes_svg = inject_hawaii_display_inset(short_basemap_no_lakes_svg, hawaii_basemap_no_lakes_svg)
     write_text(basemap_svg, basemap_output)
     write_text(short_basemap_svg, short_basemap_output)
 
@@ -286,29 +349,29 @@ def render_html(
     short_main_deployments = filter_deployments_for_short_basemap(
         short_main_deployments,
         transformer,
-        projected_union,
-        short_projected_union,
+        projected_land_mask,
+        short_projected_land_mask,
     )
 
     projected_deployments = project_deployments(
         main_deployments,
         transformer,
         viewport,
-        projected_union,
+        projected_land_mask,
         display_union,
     )
     projected_short_deployments = project_deployments(
         short_main_deployments,
         transformer,
         short_viewport,
-        short_projected_union,
+        short_projected_land_mask,
         short_display_union,
     )
     projected_hawaii_deployments = project_deployments(
         hawaii_deployments,
         transformer,
         hawaii_viewport or viewport,
-        hawaii_projected_union or projected_union,
+        hawaii_projected_land_mask or projected_land_mask,
         hawaii_display_union or display_union,
         width=HAWAII_WIDTH,
         height=HAWAII_HEIGHT,
@@ -316,6 +379,12 @@ def render_html(
     projected_hawaii_deployments = relocate_hawaii_deployments(projected_hawaii_deployments)
     basemap_data = "data:image/svg+xml;base64," + base64.b64encode(basemap_svg.encode("utf-8")).decode("ascii")
     short_basemap_data = "data:image/svg+xml;base64," + base64.b64encode(short_basemap_svg.encode("utf-8")).decode("ascii")
+    basemap_no_lakes_data = (
+        "data:image/svg+xml;base64," + base64.b64encode(basemap_no_lakes_svg.encode("utf-8")).decode("ascii")
+    )
+    short_basemap_no_lakes_data = (
+        "data:image/svg+xml;base64," + base64.b64encode(short_basemap_no_lakes_svg.encode("utf-8")).decode("ascii")
+    )
     hawaii_basemap_data = (
         "data:image/svg+xml;base64," + base64.b64encode(hawaii_basemap_svg.encode("utf-8")).decode("ascii")
         if hawaii_basemap_svg
@@ -340,6 +409,8 @@ def render_html(
         ),
         "__MAP_IMAGE__": basemap_data,
         "__SHORT_MAP_IMAGE__": short_basemap_data,
+        "__MAP_NO_LAKES_IMAGE__": basemap_no_lakes_data,
+        "__SHORT_MAP_NO_LAKES_IMAGE__": short_basemap_no_lakes_data,
         "__HAWAII_MAP_IMAGE__": hawaii_basemap_data,
         "__PIN_IMAGE__": pin_data,
         "__IMAGE_WIDTH__": str(WIDTH),
@@ -361,13 +432,17 @@ def render_html(
     return html_text
 
 
-def load_boundaries(cache_dir: Path) -> tuple[list[tuple[str, BaseGeometry]], list[tuple[str, BaseGeometry]]]:
+def load_boundaries(
+    cache_dir: Path,
+) -> tuple[list[tuple[str, BaseGeometry]], list[tuple[str, BaseGeometry]], list[tuple[str, BaseGeometry]]]:
     cache_dir.mkdir(parents=True, exist_ok=True)
     admin0_zip = download(SOURCES["admin0"], cache_dir / "ne_50m_admin_0_countries.zip")
     admin1_zip = download(SOURCES["admin1"], cache_dir / "ne_10m_admin_1_states_provinces.zip")
+    lakes_zip = download(SOURCES["lakes"], cache_dir / "ne_10m_lakes.zip")
 
     admin0_gdf = gpd.read_file(admin0_zip)
     admin1_gdf = gpd.read_file(admin1_zip)
+    lakes_gdf = gpd.read_file(lakes_zip)
 
     admin0_rows: list[tuple[str, BaseGeometry]] = []
     for _, row in admin0_gdf.iterrows():
@@ -383,9 +458,15 @@ def load_boundaries(cache_dir: Path) -> tuple[list[tuple[str, BaseGeometry]], li
             continue
         admin1_rows.append((cc, row.geometry))
 
+    lake_rows: list[tuple[str, BaseGeometry]] = []
+    for _, row in lakes_gdf.iterrows():
+        if row.geometry.is_empty:
+            continue
+        lake_rows.append(("water", row.geometry))
+
     if not admin0_rows:
         raise ValueError("Natural Earth admin0 selection returned no geometries")
-    return admin0_rows, admin1_rows
+    return admin0_rows, admin1_rows, lake_rows
 
 
 def download(url: str, dest: Path) -> Path:
@@ -463,6 +544,18 @@ def project_boundaries(
             continue
         out.append((cc, simplified))
     return out
+
+
+def filter_visible_lakes(rows: list[tuple[str, BaseGeometry]]) -> list[tuple[str, BaseGeometry]]:
+    return [(kind, geom) for kind, geom in rows if not geom.is_empty and geom.area >= MIN_VISIBLE_LAKE_AREA_M2]
+
+
+def land_without_lakes(land: BaseGeometry, lakes: list[tuple[str, BaseGeometry]]) -> BaseGeometry:
+    lake_union = unary_union([geom for _, geom in lakes if not geom.is_empty])
+    if lake_union.is_empty:
+        return land
+    dry_land = land.difference(lake_union)
+    return dry_land if not dry_land.is_empty else land
 
 
 def country_code(row: Any) -> str:
@@ -566,6 +659,7 @@ def to_svg_point(x: float, y: float, viewport: dict[str, float]) -> tuple[float,
 def render_basemap_svg(
     admin0: list[tuple[str, BaseGeometry]],
     admin1: list[tuple[str, BaseGeometry]],
+    lakes: list[tuple[str, BaseGeometry]] | None,
     viewport: dict[str, float],
     projected_union: BaseGeometry,
     transformer: Transformer,
@@ -579,7 +673,18 @@ def render_basemap_svg(
         path = geometry_to_path(geom.simplify(1_800, preserve_topology=True), viewport)
         country_paths.append(
             f'<path class="country" d="{path}" fill="{LAND_FILL}" '
-            f'stroke="{OUTLINE_COLOR}" stroke-width="0.75" stroke-linejoin="round"/>'
+            f'fill-rule="evenodd" clip-rule="evenodd" stroke="{OUTLINE_COLOR}" '
+            f'stroke-width="0.75" stroke-linejoin="round"/>'
+        )
+
+    lake_paths: list[str] = []
+    for _kind, geom in lakes or []:
+        path = geometry_to_path(geom.simplify(500, preserve_topology=True), viewport)
+        if not path:
+            continue
+        lake_paths.append(
+            f'<path class="water" d="{path}" fill="{BACKGROUND_COLOR}" '
+            f'stroke="{BACKGROUND_COLOR}" stroke-width="0.35" stroke-linejoin="round"/>'
         )
 
     subdivision_paths: list[str] = []
@@ -607,6 +712,9 @@ def render_basemap_svg(
   <rect width="{width}" height="{height}" fill="{BACKGROUND_COLOR}"/>
   <g id="countries">
     {''.join(country_paths)}
+  </g>
+  <g id="water">
+    {''.join(lake_paths)}
   </g>
   <g id="subdivisions">
     {''.join(subdivision_paths)}
@@ -812,7 +920,7 @@ def _parse_int(value: str | None, default: int) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render GIS-correct final LSN map")
+    parser = argparse.ArgumentParser(description="Render GIS-correct final LSN2 map")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
     parser.add_argument("--basemap-output", default=DEFAULT_BASEMAP_OUTPUT, help="Generated SVG basemap path")
@@ -831,7 +939,7 @@ def main() -> None:
     parser.add_argument("--grid-spacing", type=float, default=GRID_SPACING_DEGREES, help="Graticule spacing in degrees")
     parser.add_argument("--no-grid", action="store_false", dest="show_grid", help="Disable graticule lines")
     parser.set_defaults(show_grid=False)
-    parser.add_argument("--title", default="LSN North America - Final GIS Map", help="Title shown in the prototype")
+    parser.add_argument("--title", default="Version 2.0 - LSN2 Map", help="Title shown in the prototype")
     args = parser.parse_args()
 
     html_text = render_html(
@@ -906,9 +1014,8 @@ HTML_TEMPLATE = """<!doctype html>
       box-shadow: 0 20px 42px rgba(9, 18, 14, .12);
       backdrop-filter: blur(14px);
     }
-    .title { min-width: 240px; padding-left: 2px; }
+    .title { min-width: 170px; padding-left: 2px; }
     .title h1 { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 700; }
-    .title p { margin: 3px 0 0; color: var(--muted); font-size: 11px; font-weight: 600; }
     .modebar, .toolbar, .framebar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
     .mode-btn, .tool-btn {
       appearance: none;
@@ -955,7 +1062,7 @@ HTML_TEMPLATE = """<!doctype html>
   </style>
 </head>
 <body>
-  <main id="stage" aria-label="LSN North America map">
+  <main id="stage" aria-label="LSN2 North America map">
     <img id="mapImage" alt="" draggable="false" src="__MAP_IMAGE__">
     <canvas id="hotCanvas"></canvas>
     <canvas id="pinCanvas"></canvas>
@@ -963,7 +1070,6 @@ HTML_TEMPLATE = """<!doctype html>
   <div class="hud" aria-label="map controls">
     <div class="title">
       <h1>__TITLE__</h1>
-      <p><span id="headerCount">0</span> deployments · __PROJECTION__</p>
     </div>
     <nav class="modebar" aria-label="Layer toggles">
       <button class="mode-btn active" id="hotZonesToggle" type="button">Hot Zones</button>
@@ -974,6 +1080,10 @@ HTML_TEMPLATE = """<!doctype html>
       <div class="framebar" aria-label="Map frame">
         <button class="tool-btn active" id="fullFrameBtn" type="button">Full map</button>
         <button class="tool-btn" id="shortFrameBtn" type="button">Short map</button>
+      </div>
+      <div class="framebar" aria-label="Water layer">
+        <button class="tool-btn active" id="lakesBtn" type="button">Lakes</button>
+        <button class="tool-btn" id="noLakesBtn" type="button">No lakes</button>
       </div>
       <button class="tool-btn" id="zoomInBtn" type="button">Zoom +</button>
       <button class="tool-btn" id="zoomOutBtn" type="button">Zoom -</button>
@@ -995,6 +1105,8 @@ HTML_TEMPLATE = """<!doctype html>
     const shortHawaiiDeployments = __SHORT_HAWAII_DEPLOYMENTS_JSON__;
     const mainMapImage = "__MAP_IMAGE__";
     const shortMapImage = "__SHORT_MAP_IMAGE__";
+    const mainMapNoLakesImage = "__MAP_NO_LAKES_IMAGE__";
+    const shortMapNoLakesImage = "__SHORT_MAP_NO_LAKES_IMAGE__";
     const hawaiiMapImage = "__HAWAII_MAP_IMAGE__";
     const pinImage = "__PIN_IMAGE__";
     const pinIsSvg = __PIN_IS_SVG__;
@@ -1002,7 +1114,9 @@ HTML_TEMPLATE = """<!doctype html>
     const hawaiiImageSize = { width: __HAWAII_IMAGE_WIDTH__, height: __HAWAII_IMAGE_HEIGHT__ };
     const projectionName = "__PROJECTION__";
 
-    const HOT_ZONES_FADE_START_ZOOM = 1.7;
+    const MAX_ZOOM_SCALE = 9;
+    const HOT_ZONES_FADE_START_SCALE = 7.1;
+    const HOT_ZONES_FADE_END_SCALE = MAX_ZOOM_SCALE;
     const HOTZONE_DISTANCE = 82;
     const HOTZONE_MIN_RADIUS = 14;
     const HOTZONE_MAX_RADIUS = 72;
@@ -1018,7 +1132,6 @@ HTML_TEMPLATE = """<!doctype html>
     const POINT_RADIUS_BASE = 2.2;
     const POINT_RADIUS_STEP = 0.08;
 
-    const format = new Intl.NumberFormat("en-US");
     const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const pinDuration = prefersReducedMotion ? 30 : PIN_ANIMATION_DURATION;
     const pinDelayMax = prefersReducedMotion ? 0 : PIN_STAGGER_MAX;
@@ -1039,7 +1152,7 @@ HTML_TEMPLATE = """<!doctype html>
         label: "Full map",
         mapVariant: "generated_full_basemap",
         basemapSvg,
-        image: mainMapImage,
+        images: { lakes: mainMapImage, noLakes: mainMapNoLakesImage },
         mainDeployments,
         hawaiiDeployments
       },
@@ -1047,7 +1160,7 @@ HTML_TEMPLATE = """<!doctype html>
         label: "Short map",
         mapVariant: "generated_clipped_basemap",
         basemapSvg: shortBasemapSvg,
-        image: shortMapImage,
+        images: { lakes: shortMapImage, noLakes: shortMapNoLakesImage },
         mainDeployments: shortMainDeployments,
         hawaiiDeployments: shortHawaiiDeployments
       }
@@ -1073,6 +1186,7 @@ HTML_TEMPLATE = """<!doctype html>
       }
     };
     let activeFrame = "full";
+    let activeWater = "lakes";
     let transform = d3.zoomIdentity;
     let viewport = { width: 0, height: 0, ratio: 1 };
     let fitScale = 1;
@@ -1092,11 +1206,11 @@ HTML_TEMPLATE = """<!doctype html>
     function activateFrameData(frameId) {
       const frame = mapFrames[frameId] || mapFrames.full;
       document.body.dataset.mapFrame = frameId;
-      mapImageEl.src = frame.image;
+      document.body.dataset.waterLayer = activeWater;
+      mapImageEl.src = frame.images[activeWater] || frame.images.lakes;
       mainPoints = preparePoints(frame.mainDeployments);
       hawaiiPoints = preparePoints(frame.hawaiiDeployments);
       allPoints = mainPoints.concat(hawaiiPoints);
-      document.getElementById("headerCount").textContent = format.format(allPoints.length);
       startPinReveal();
     }
 
@@ -1147,6 +1261,7 @@ HTML_TEMPLATE = """<!doctype html>
         label: frame.label,
         basemapSvg: frame.basemapSvg,
         mapVariant: frame.mapVariant,
+        waterLayer: activeWater,
         stage: activeStageRect(),
         visiblePoints: framePointCount,
         excludedPoints: Math.max(0, fullPointCount - framePointCount),
@@ -1160,6 +1275,13 @@ HTML_TEMPLATE = """<!doctype html>
 
     function relativeZoom() {
       return Math.max(1, transform.k / Math.max(0.001, fitScale));
+    }
+
+    function hotZoneOpacity() {
+      if (transform.k <= HOT_ZONES_FADE_START_SCALE) return 1;
+      if (transform.k >= HOT_ZONES_FADE_END_SCALE) return 0;
+      const progress = (transform.k - HOT_ZONES_FADE_START_SCALE) / (HOT_ZONES_FADE_END_SCALE - HOT_ZONES_FADE_START_SCALE);
+      return 1 - (progress * progress * (3 - 2 * progress));
     }
 
     function applyTransform() {
@@ -1185,7 +1307,7 @@ HTML_TEMPLATE = """<!doctype html>
     function draw() {
       hotCtx.clearRect(0, 0, viewport.width, viewport.height);
       pinCtx.clearRect(0, 0, viewport.width, viewport.height);
-      if (layerState.hotZonesEnabled) {
+      if (layerState.hotZonesEnabled && hotZoneOpacity() > 0) {
         drawHotZones(hotCtx);
       }
       if (layerState.pointsEnabled) {
@@ -1233,7 +1355,7 @@ HTML_TEMPLATE = """<!doctype html>
       ctx.translate(transform.x, transform.y);
       ctx.scale(transform.k, transform.k);
       ctx.setLineDash([3, 4]);
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = hotZoneOpacity();
       for (const zone of clusters) {
         ctx.beginPath();
         ctx.fillStyle = HOTZONE_FILL;
@@ -1320,7 +1442,7 @@ HTML_TEMPLATE = """<!doctype html>
     }
 
     const zoom = d3.zoom()
-      .scaleExtent([0.18, 9])
+      .scaleExtent([0.18, MAX_ZOOM_SCALE])
       .touchable(() => true)
       .filter((event) => !event.button)
       .on("zoom", handleZoom);
@@ -1343,6 +1465,8 @@ HTML_TEMPLATE = """<!doctype html>
       document.getElementById("pointsToggle").classList.toggle("active", layerState.pointsEnabled);
       document.getElementById("fullFrameBtn").classList.toggle("active", activeFrame === "full");
       document.getElementById("shortFrameBtn").classList.toggle("active", activeFrame === "short");
+      document.getElementById("lakesBtn").classList.toggle("active", activeWater === "lakes");
+      document.getElementById("noLakesBtn").classList.toggle("active", activeWater === "noLakes");
     }
 
     function setFrame(frame) {
@@ -1355,6 +1479,15 @@ HTML_TEMPLATE = """<!doctype html>
         setTransform(fitTransform(), true);
         if (window.__LSN_MAP_FINAL_PROOF__) window.__LSN_MAP_FINAL_PROOF__.activeFrame = frameProof();
       });
+    }
+
+    function setWater(waterLayer) {
+      if (!["lakes", "noLakes"].includes(waterLayer)) return;
+      activeWater = waterLayer;
+      activateFrameData(activeFrame);
+      rebuildControls();
+      requestDraw();
+      if (window.__LSN_MAP_FINAL_PROOF__) window.__LSN_MAP_FINAL_PROOF__.activeFrame = frameProof();
     }
 
     function onLayerStateUpdate(next) {
@@ -1452,6 +1585,8 @@ HTML_TEMPLATE = """<!doctype html>
     });
     document.getElementById("fullFrameBtn").addEventListener("click", () => setFrame("full"));
     document.getElementById("shortFrameBtn").addEventListener("click", () => setFrame("short"));
+    document.getElementById("lakesBtn").addEventListener("click", () => setWater("lakes"));
+    document.getElementById("noLakesBtn").addEventListener("click", () => setWater("noLakes"));
     document.getElementById("fitBtn").addEventListener("click", () => setTransform(fitTransform(), true));
     document.getElementById("zoomInBtn").addEventListener("click", () => setTransform(transform.scale(ZOOM_STEP), true));
     document.getElementById("zoomOutBtn").addEventListener("click", () => setTransform(transform.scale(1 / ZOOM_STEP), true));
@@ -1479,7 +1614,6 @@ HTML_TEMPLATE = """<!doctype html>
     setTransform(fitTransform(), false);
     startPinReveal();
     rebuildControls();
-    document.getElementById("headerCount").textContent = format.format(allPoints.length);
     window.__LSN_MAP_FINAL_PROOF__ = {
       generatedAt,
       sourceCsv,
@@ -1491,6 +1625,7 @@ HTML_TEMPLATE = """<!doctype html>
       rows: mainDeployments.length + hawaiiDeployments.length,
       activeFrame: frameProof(),
       frameProfiles,
+      waterLayer: activeWater,
       mainRows: mainPoints.length,
       hawaiiRows: hawaiiPoints.length,
       points: allPoints.length,
@@ -1501,7 +1636,8 @@ HTML_TEMPLATE = """<!doctype html>
       pointsEnabled: layerState.pointsEnabled,
       pointLayer: "canvas",
       hotZoneClustering: "screen-space",
-      hotZoneClusterTightenZoom: HOT_ZONES_FADE_START_ZOOM,
+      hotZoneFadeStartScale: HOT_ZONES_FADE_START_SCALE,
+      hotZoneFadeEndScale: HOT_ZONES_FADE_END_SCALE,
       hasHawaiiInset: false
     };
   </script>

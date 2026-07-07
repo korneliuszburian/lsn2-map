@@ -1,4 +1,4 @@
-"""Render an LSN-styled North America map from real geographic boundaries.
+"""Render an LSN2-styled North America map from real geographic boundaries.
 
 This is the "correct coordinate" counterpart to render_lsn_map_options.py.
 The basemap and deployment points are projected with the same CRS, so point
@@ -469,7 +469,7 @@ def _parse_int(value: str | None, default: int) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render GIS-correct LSN styled map prototype")
+    parser = argparse.ArgumentParser(description="Render GIS-correct LSN2 styled map prototype")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
     parser.add_argument("--basemap-output", default=DEFAULT_BASEMAP_OUTPUT, help="Generated SVG basemap path")
@@ -477,7 +477,7 @@ def main() -> None:
     parser.add_argument("--grid-spacing", type=float, default=GRID_SPACING_DEGREES, help="Graticule spacing in degrees")
     parser.add_argument("--no-grid", action="store_false", dest="show_grid", help="Disable geographic grid lines")
     parser.set_defaults(show_grid=True)
-    parser.add_argument("--title", default="LSN North America - Geographic", help="Title shown in the prototype")
+    parser.add_argument("--title", default="LSN2 North America - Geographic", help="Title shown in the prototype")
     args = parser.parse_args()
 
     html_text = render_html(

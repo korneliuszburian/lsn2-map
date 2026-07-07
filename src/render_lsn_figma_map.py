@@ -44,7 +44,7 @@ def main() -> None:
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Path to clients_geocoded.csv")
     parser.add_argument("--map-image", default=DEFAULT_MAP_IMAGE, help="Path to browser-ready SVG/PNG artwork")
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
-    parser.add_argument("--title", default="LSN North America - Figma Map", help="Document title")
+    parser.add_argument("--title", default="LSN2 North America - Figma Map", help="Document title")
     args = parser.parse_args()
 
     html = render_html(Path(args.input), Path(args.map_image), args.title)
@@ -153,7 +153,7 @@ HTML_TEMPLATE = """<!doctype html>
   </style>
 </head>
 <body>
-  <main class="figma-frame" aria-label="LSN North America map Figma component">
+  <main class="figma-frame" aria-label="LSN2 North America map Figma component">
     <section class="map-card" data-variant="overview" data-node-id="1715:3526">
       <canvas width="804" height="880" data-map-canvas="overview"></canvas>
       <button class="zoom-glyph" aria-label="Zoom map"></button>

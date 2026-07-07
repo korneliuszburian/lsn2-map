@@ -55,8 +55,8 @@ def test_final_renderer_keeps_required_map_review_behaviour() -> None:
     assert 'id="pointsToggle"' in html
     assert 'data-mode="flags"' not in html
     assert "drawHotZones" in html
-    assert "HOT_ZONES_FADE_START_ZOOM" in html
-    assert "HOT_ZONES_FADE_END_ZOOM" not in html
+    assert "HOT_ZONES_FADE_START_SCALE" in html
+    assert "HOT_ZONES_FADE_END_SCALE" in html
     assert "buildScreenHotZones" in html
     assert "startPinReveal" in html
     assert "PIN_ANIMATION_DURATION" in html
@@ -72,10 +72,11 @@ def test_final_renderer_keeps_full_map_default_and_short_frame_as_variation() ->
     assert 'let activeFrame = "full";' in html
     assert "const mapFrames = {" in html
     assert "const shortMapImage = \"__SHORT_MAP_IMAGE__\";" in html
+    assert "const shortMapNoLakesImage = \"__SHORT_MAP_NO_LAKES_IMAGE__\";" in html
     assert "const shortMainDeployments = __SHORT_MAIN_DEPLOYMENTS_JSON__;" in html
     assert 'mapVariant: "generated_full_basemap"' in html
     assert "basemapSvg: shortBasemapSvg" in html
-    assert "image: shortMapImage" in html
+    assert "images: { lakes: shortMapImage, noLakes: shortMapNoLakesImage }" in html
     assert "mainDeployments: shortMainDeployments" in html
     assert "const frameProfiles = {" in html
     assert 'document.body.dataset.mapFrame = frameId;' in html
@@ -83,7 +84,11 @@ def test_final_renderer_keeps_full_map_default_and_short_frame_as_variation() ->
     assert "function activeStageRect()" in html
     assert "function activateFrameData(frameId)" in html
     assert "mapVariant: frame.mapVariant" in html
-    assert "mapImageEl.src = frame.image;" in html
+    assert "mapImageEl.src = frame.images[activeWater] || frame.images.lakes;" in html
+    assert 'let activeWater = "lakes";' in html
+    assert 'id="lakesBtn"' in html
+    assert 'id="noLakesBtn"' in html
+    assert 'document.getElementById("noLakesBtn").addEventListener("click", () => setWater("noLakes"));' in html
     assert "allPoints = mainPoints.concat(hawaiiPoints);" in html
     assert "excludedPoints: Math.max(0, fullPointCount - framePointCount)" in html
     assert "activeFrame: frameProof()" in html
@@ -129,6 +134,7 @@ def test_final_renderer_does_not_draw_manual_water_ovals() -> None:
     basemap = final_map.render_basemap_svg(
         [],
         [],
+        [],
         {"minx": 0, "miny": 0, "maxx": 1, "maxy": 1, "scale": 1, "offset_x": 0, "offset_y": 0},
         final_map.GeometryCollection(),
         None,
@@ -142,6 +148,15 @@ def test_final_renderer_includes_caribbean_basemap_islands() -> None:
     assert {"CU", "PR", "HT", "DO", "JM", "BS"} <= set(final_map.BASEMAP_COUNTRIES)
     assert set(final_map.DATA_COUNTRIES) == {"US", "CA", "MX"}
     assert "10m_cultural/ne_10m_admin_1_states_provinces.zip" in final_map.SOURCES["admin1"]
+
+
+def test_final_renderer_draws_explicit_lake_layer() -> None:
+    source = Path("src/render_lsn_final_map.py").read_text(encoding="utf-8")
+
+    assert "10m_physical/ne_10m_lakes.zip" in final_map.SOURCES["lakes"]
+    assert 'class="water"' in source
+    assert '<g id="water">' in source
+    assert "filter_visible_lakes(" in source
 
 
 def test_final_projected_extent_samples_edges_so_southern_mexico_is_not_clipped() -> None:

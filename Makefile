@@ -29,7 +29,7 @@ run-prod:
 	$(PYTHON) -m src.run_pipeline --input $(CLIENT_INPUT) --output $(OUTPUT_DIR) --reference-mode parquet
 
 map-final:
-	$(PYTHON) -m src.render_lsn_final_map --input $(OUTPUT_DIR)/clients_geocoded.csv --output $(OUTPUT_DIR)/lsn-map-final.html --basemap-output $(OUTPUT_DIR)/lsn-north-america-final.svg --pin-image $(PIN_IMAGE)
+	$(PYTHON) -m src.render_lsn_final_map --input $(OUTPUT_DIR)/clients_geocoded.csv --output $(OUTPUT_DIR)/lsn-map-final.html --basemap-output $(OUTPUT_DIR)/lsn-north-america-final.svg --short-basemap-output $(OUTPUT_DIR)/lsn-north-america-final-short.svg --pin-image $(PIN_IMAGE)
 
 prototype: run-demo map-final
 

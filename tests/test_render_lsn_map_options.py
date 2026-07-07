@@ -37,6 +37,7 @@ def test_makefile_exposes_single_client_facing_final_map_target() -> None:
     assert "map-final:" in makefile
     assert "$(PYTHON) -m src.render_lsn_final_map" in makefile
     assert "--basemap-output $(OUTPUT_DIR)/lsn-north-america-final.svg" in makefile
+    assert "--short-basemap-output $(OUTPUT_DIR)/lsn-north-america-final-short.svg" in makefile
     assert "--pin-image $(PIN_IMAGE)" in makefile
     assert "--pin-image $(PIN_IMAGE)" in makefile
     assert "--output $(OUTPUT_DIR)/lsn-map-final.html" in makefile
@@ -61,6 +62,56 @@ def test_final_renderer_keeps_required_map_review_behaviour() -> None:
     assert "PIN_ANIMATION_DURATION" in html
     assert "d3.zoom()" in html
     assert "on(\"zoom\", handleZoom)" in html
+
+
+def test_final_renderer_keeps_full_map_default_and_short_frame_as_variation() -> None:
+    html = final_map.HTML_TEMPLATE
+
+    assert 'id="fullFrameBtn"' in html
+    assert 'id="shortFrameBtn"' in html
+    assert 'let activeFrame = "full";' in html
+    assert "const mapFrames = {" in html
+    assert "const shortMapImage = \"__SHORT_MAP_IMAGE__\";" in html
+    assert "const shortMainDeployments = __SHORT_MAIN_DEPLOYMENTS_JSON__;" in html
+    assert 'mapVariant: "generated_full_basemap"' in html
+    assert "basemapSvg: shortBasemapSvg" in html
+    assert "image: shortMapImage" in html
+    assert "mainDeployments: shortMainDeployments" in html
+    assert "const frameProfiles = {" in html
+    assert 'document.body.dataset.mapFrame = frameId;' in html
+    assert 'mapVariant: "generated_clipped_basemap"' in html
+    assert "function activeStageRect()" in html
+    assert "function activateFrameData(frameId)" in html
+    assert "mapVariant: frame.mapVariant" in html
+    assert "mapImageEl.src = frame.image;" in html
+    assert "allPoints = mainPoints.concat(hawaiiPoints);" in html
+    assert "excludedPoints: Math.max(0, fullPointCount - framePointCount)" in html
+    assert "activeFrame: frameProof()" in html
+    assert "resizeAll();" in html
+    assert "document.getElementById(\"shortFrameBtn\").addEventListener(\"click\", () => setFrame(\"short\"));" in html
+
+
+def test_final_short_map_is_separate_generated_extent_not_viewport_crop() -> None:
+    source = Path("src/render_lsn_final_map.py").read_text(encoding="utf-8")
+
+    assert "SHORT_MAP_COMPONENT_MAX_LAT = 66.5" in source
+    assert "SHORT_MAP_POINT_EXTENT_LON_LAT = (-170.0, 9.0, -50.0, SHORT_MAP_COMPONENT_MAX_LAT)" in source
+    assert "SHORT_MAP_MAX_SNAP_DISTANCE_M = 100_000" in source
+    assert "DEFAULT_SHORT_BASEMAP_OUTPUT" in source
+    assert "short_projected_admin0 = project_boundaries" in source
+    assert "short_viewport = build_viewport" in source
+    assert "short_basemap_svg = render_basemap_svg" in source
+    assert "projected_short_deployments = project_deployments" in source
+    assert "deployment_in_lon_lat_extent(d, SHORT_MAP_POINT_EXTENT_LON_LAT)" in source
+    assert "filter_deployments_for_short_basemap(" in source
+    assert "was_on_full_basemap and not remains_on_short_basemap" in source
+    assert "too_far_to_snap = point.distance(short_union) > SHORT_MAP_MAX_SNAP_DISTANCE_M" in source
+    assert "component_max_lat=SHORT_MAP_COMPONENT_MAX_LAT" in source
+    assert "def filter_components_north_of" in source
+    assert "geom.representative_point().y <= max_lat" in source
+    assert "source_geom = filter_components_north_of(geom, component_max_lat)" in source
+    assert "geom.intersection(geographic_clip)" not in source
+    assert 'body[data-map-frame="short"] #stage' not in source
 
 
 def test_final_hot_zones_use_canvas_safe_green_style_and_bounded_radius() -> None:

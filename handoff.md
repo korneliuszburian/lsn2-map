@@ -2,7 +2,7 @@
 
 > **Pierwsza rzecz po odpaleniu repo: przeczytaj ten plik (`handoff.md`) od deski do deski.**
 > To jest single source of truth dla bieżącego stanu pracy, decyzji, known-issues i tego, jak uruchomić projekt na nowej maszynie.
-> Datum ostatniej aktualizacji: **2026-07-06**.
+> Datum ostatniej aktualizacji: **2026-07-07**.
 
 ---
 
@@ -36,13 +36,15 @@ make serve   # http://127.0.0.1:8017/lsn-map-final.html
 Aktualny check list dla tej tury:
 - `make map-final` ✅
 - `python -m py_compile src/render_lsn_final_map.py` ✅
-- `make test` ✅ (`36 passed`)
+- `make test` ✅ (`51 passed`)
 - `make lint` ✅
 - `make typecheck` ❌ (brak `pyright` w lokalnym PATH)
 
 Wygenerowane artefakty (do odtworzenia / nie commitujemy):
 - `data/output/lsn-map-final.html`
 - `data/output/lsn-north-america-final.svg`
+- `data/output/lsn-north-america-final-short.svg`
+- `data/output/lsn-north-america-final-hawaii.svg`
 - `data/output/clients_geocoded.csv`
 
 Wszystkie source'y, assety artworku i kod rendererów **są w repo** — niczego nie trzeba dogrywać ręcznie.
@@ -112,21 +114,29 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 
 ---
 
-## 4. Bieżący stan repo (2026-07-06)
+## 4. Bieżący stan repo (2026-07-07)
 
 - Gałąź `main`.
 - Bieżący WIP upraszcza deliverable do jednej finalnej mapy.
 - Aktywna ścieżka: `src/render_lsn_final_map.py` → `make map-final` → `data/output/lsn-map-final.html`.
 - `Makefile` nie wystawia już targetów porównawczych `map-options`, `map-figma`, `map-geographic`, `map-d3`.
 - Finalna mapa używa GIS/canvas basemapy stylowanej pod referencję klienta; nie używamy uproszczonego artwork overlay jako finalu.
+- Bieżąca odpowiedź na feedback Michała: final ma domyślne `Full map` i opcjonalne `Short map`. `Short map` nie jest cropem viewportu; to osobny wygenerowany basemap, cięty geograficznie przed projekcją, z osobno filtrowanymi punktami.
 
 ### Generated outputs (`data/output/`, gitignored — nie commitować)
-- `lsn-map-final.html` — jedyny aktywny client-facing output: D3/GIS final, jasna mapa, jeziora, Karaiby/Hawaje w tej samej mapie (bez insetu), zielone hot-zones, piny SVG, Points toggle, zoom/fullscreen.
+- `lsn-map-final.html` — jedyny aktywny client-facing output: D3/GIS final, jasna mapa, jeziora, Karaiby/Hawaje w tej samej mapie (bez insetu), zielone hot-zones, piny SVG, Points toggle, `Full map`/`Short map`, zoom/fullscreen.
+- `lsn-north-america-final.svg` — pełny wygenerowany basemap.
+- `lsn-north-america-final-short.svg` — wariant short, wygenerowany przez odrzucenie całych północnych detached components powyżej `SHORT_MAP_COMPONENT_MAX_LAT = 66.5`; bez prostokątnego cięcia poligonów.
+- `lsn-north-america-final-hawaii.svg` — lokalny generated artifact dla hawajskiego display insetu.
 - `clients_geocoded.csv`, `clients_enriched.xlsx`, `clients.geojson`, `geocode_exceptions.csv`, `run_summary.json`.
 - `map.html` — starszy MapLibre dashboard; **artefakt, nie source of truth**.
 
 ### Lokalny proof/scratch (`.local-lab/`, gitignored)
 - `.local-lab/proof/lsn-map-2026-06-30/0[1-5]-*.png` — screenshoty branded SVG + Figma component.
+- `.local-lab/proof/lsn-map-2026-07-07/01-final-short-map-frame.png` — historyczny proof pierwszej wersji `Short map`.
+- `.local-lab/proof/lsn-map-2026-07-07/02-final-short-map-layout-fixed.png` — historyczny proof viewport-cropu; nie traktować jako aktualnego rozwiązania.
+- `.local-lab/proof/lsn-map-2026-07-07/03-final-short-map-data-safe-crop.png` — historyczny proof data-safe viewport-cropu; nie traktować jako aktualnego rozwiązania.
+- `.local-lab/proof/lsn-map-2026-07-07/07-final-short-map-no-far-north-snap.png` — aktualny proof właściwej poprawki: osobny generated short basemap, naturalny component trim bez sztucznej linii cięcia, 1184 widoczne deploymenty w `Short map`; północne far-snap artefakty odfiltrowane.
 - `.local-lab/proof/lsn-map/*.txt` — runtime proof (exact points, geographic).
 - Te pliki **nie przenoszą się** na nową maszynę przez git; trzeba je wyregenerować (`make prototype` + agent-browser/screenshot).
 
@@ -154,7 +164,13 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
   - ręczne białe owale jezior zostały usunięte; finalny SVG ma `ellipses: 0`.
   - Hawaje są display-only relokowane w tym samym SVG (`hawaii-display-inset`, `translate(255 1325) scale(0.62)`), zgodnie z referencją klienta, bez osobnej mapy HTML.
   - następny znany task wizualny: filtr mikro-elementów/wysp względem oryginalnego SVG klienta; najlepiej dodać area/extent filter w generatorze, nie edytować ręcznie SVG.
-- `make test` → **49 passed**.
+- 2026-07-07 boss-feedback update:
+  - `Full map` zostaje domyślnym kadrem finalnej mapy.
+  - Pierwsza implementacja była tylko fit/viewport cropem i została odrzucona. Następna próba z prostokątnym `lat_max=62.0` wycięła zbyt dużą część Kanady i 32 aktualne punkty demo. Aktualna implementacja generuje osobny `lsn-north-america-final-short.svg`, odrzuca całe detached components powyżej `SHORT_MAP_COMPONENT_MAX_LAT = 66.5`, nie przecina poligonów sztuczną linią, i przelicza dataset punktów dla frame'u.
+  - Short-map punktów nie wolno snapować do usuniętej północnej geometrii. `filter_deployments_for_short_basemap()` usuwa punkty, które były na full basemapie, ale nie zostały na short basemapie, oraz far-snap artefakty dalej niż `SHORT_MAP_MAX_SNAP_DISTANCE_M = 100_000`.
+  - Browser proof po kliknięciu `Short map`: `activeFrame.id=short`, `basemapSvg=data/output/lsn-north-america-final-short.svg`, `mapVariant=generated_clipped_basemap`, `rows=1200`, `visiblePoints=1184`, `excludedPoints=16`, `headerCount=1,184`, `imageAttrLength=799674`, `stage.height=577`.
+  - Gate'y tej sesji: `python -m py_compile src/render_lsn_final_map.py` passed; `pytest tests/test_render_lsn_map_options.py -q` passed (`15 passed`); `pytest tests/ -q` passed (`51 passed`); `ruff check src/ tests/` passed; `make map-final` passed.
+- `make test` → **51 passed**.
 - `make lint` → all checks passed.
 - `make typecheck` → **fails z 16 błędami pyright/pandas-geopandas typing** (zapisany **residual risk**, znany, nie blokuje).
 - W sesji bez `.venv` (brak pandas globalnie) działa tylko `py_compile` + wywołania rendererów gdy CSV już istnieje.
@@ -166,7 +182,8 @@ Tryby referencji: `auto`, `mock`, `parquet`, `synthetic`. Priorytet `auto`: `--r
 1. `src/render_lsn_final_map.py` = source of truth finalnej mapy.
 2. Generować tylko `data/output/lsn-map-final.html` przez `make map-final` albo `make prototype`.
 3. Final ma zachować dopracowane zachowanie canvas: animowane piny, hot-zones z fade przy zoomie, Points jako osobna warstwa.
-4. Jeśli klient chce dokładne punkty na ich oryginalnym artworku → poprosić o **georeferencję / CRS / control points**.
+4. Pełny kadr mapy traktować jako główny. Skrócony kadr pokazywać wyłącznie jako wariację, bo dzisiejsze i przyszłe dane mogą obejmować północną Kanadę.
+5. Jeśli klient chce dokładne punkty na ich oryginalnym artworku → poprosić o **georeferencję / CRS / control points**.
 
 ---
 

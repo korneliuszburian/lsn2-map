@@ -22,6 +22,7 @@ from shapely.ops import nearest_points, transform, unary_union
 DEFAULT_INPUT = "data/output/clients_geocoded.csv"
 DEFAULT_OUTPUT = "data/output/lsn-map-final.html"
 DEFAULT_BASEMAP_OUTPUT = "data/output/lsn-north-america-final.svg"
+DEFAULT_SHORT_BASEMAP_OUTPUT = "data/output/lsn-north-america-final-short.svg"
 DEFAULT_HAWAII_BASEMAP_OUTPUT = "data/output/lsn-north-america-final-hawaii.svg"
 DEFAULT_CACHE_DIR = "data/reference"
 DEFAULT_PIN_IMAGE = "data/assets/client-map/pin-na-map.svg"
@@ -58,6 +59,9 @@ SOURCES = {
 }
 
 MAIN_VIEWPORT_EXTENT_LON_LAT = (-170.0, 9.0, -50.0, 84.0)
+SHORT_MAP_COMPONENT_MAX_LAT = 66.5
+SHORT_MAP_POINT_EXTENT_LON_LAT = (-170.0, 9.0, -50.0, SHORT_MAP_COMPONENT_MAX_LAT)
+SHORT_MAP_MAX_SNAP_DISTANCE_M = 100_000
 HAWAII_VIEWPORT_EXTENT_LON_LAT = (-163.0, 17.8, -154.0, 24.2)
 HAWAII_EXCLUDE_EXTENT_LON_LAT = (-163.4, 17.2, -153.4, 24.8)
 
@@ -124,10 +128,47 @@ def image_data_uri(path: Path) -> str:
     return f"data:image/svg+xml;base64,{encoded}" if path.suffix.lower() == ".svg" else f"data:image/png;base64,{encoded}"
 
 
+def deployment_in_lon_lat_extent(deployment: dict[str, Any], extent: tuple[float, float, float, float]) -> bool:
+    lon_min, lat_min, lon_max, lat_max = extent
+    lon = _parse_float(str(deployment.get("lon")))
+    lat = _parse_float(str(deployment.get("lat")))
+    return lon is not None and lat is not None and lon_min <= lon <= lon_max and lat_min <= lat <= lat_max
+
+
+def geometry_covers_point(geom: BaseGeometry, point: Point) -> bool:
+    return geom.contains(point) or geom.touches(point)
+
+
+def deployment_raw_point(deployment: dict[str, Any], transformer: Transformer) -> Point:
+    px, py = transformer.transform(float(deployment["lon"]), float(deployment["lat"]))
+    return Point(px, py)
+
+
+def filter_deployments_for_short_basemap(
+    deployments: list[dict[str, Any]],
+    transformer: Transformer,
+    full_union: BaseGeometry,
+    short_union: BaseGeometry,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for deployment in deployments:
+        point = deployment_raw_point(deployment, transformer)
+        was_on_full_basemap = geometry_covers_point(full_union, point)
+        remains_on_short_basemap = geometry_covers_point(short_union, point)
+        too_far_to_snap = point.distance(short_union) > SHORT_MAP_MAX_SNAP_DISTANCE_M
+        if not remains_on_short_basemap and too_far_to_snap:
+            continue
+        if was_on_full_basemap and not remains_on_short_basemap:
+            continue
+        filtered.append(deployment)
+    return filtered
+
+
 def render_html(
     input_path: Path,
     cache_dir: Path,
     basemap_output: Path,
+    short_basemap_output: Path,
     hawaii_basemap_output: Path,
     pin_image: Path,
     title: str,
@@ -142,19 +183,40 @@ def render_html(
     admin0, admin1 = load_boundaries(cache_dir)
 
     main_extent = projected_extent_box(transformer, *MAIN_VIEWPORT_EXTENT_LON_LAT)
+    short_extent = main_extent
     hawaii_extent = projected_extent_box(transformer, *HAWAII_VIEWPORT_EXTENT_LON_LAT)
     hawaii_cutout = projected_extent_box(transformer, *HAWAII_EXCLUDE_EXTENT_LON_LAT)
 
     projected_admin0 = project_boundaries(admin0, transformer, main_extent, cutout=hawaii_cutout, simplify_m=2_500)
     projected_admin1 = project_boundaries(admin1, transformer, main_extent, cutout=hawaii_cutout, simplify_m=900)
+    short_projected_admin0 = project_boundaries(
+        admin0,
+        transformer,
+        short_extent,
+        cutout=hawaii_cutout,
+        simplify_m=2_500,
+        component_max_lat=SHORT_MAP_COMPONENT_MAX_LAT,
+    )
+    short_projected_admin1 = project_boundaries(
+        admin1,
+        transformer,
+        short_extent,
+        cutout=hawaii_cutout,
+        simplify_m=900,
+        component_max_lat=SHORT_MAP_COMPONENT_MAX_LAT,
+    )
     hawaii_admin0 = project_boundaries(admin0, transformer, hawaii_extent, simplify_m=1_200)
     hawaii_admin1 = project_boundaries(admin1, transformer, hawaii_extent, simplify_m=600)
 
     projected_union = unary_union([geom for _, geom in projected_admin0])
+    short_projected_union = unary_union([geom for _, geom in short_projected_admin0])
     hawaii_projected_union = unary_union([geom for _, geom in hawaii_admin0]) if hawaii_admin0 else None
     display_union = projected_union.buffer(-12_000)
     if display_union.is_empty:
         display_union = projected_union
+    short_display_union = short_projected_union.buffer(-12_000)
+    if short_display_union.is_empty:
+        short_display_union = short_projected_union
     hawaii_display_union: BaseGeometry
     if hawaii_projected_union:
         hawaii_display_union = hawaii_projected_union.buffer(-4_000)
@@ -164,6 +226,7 @@ def render_html(
         hawaii_display_union = None
 
     viewport = build_viewport([geom for _, geom in projected_admin0], WIDTH, HEIGHT)
+    short_viewport = build_viewport([geom for _, geom in short_projected_admin0], WIDTH, HEIGHT)
     hawaii_viewport = (
         build_viewport([geom for _, geom in hawaii_admin0], HAWAII_WIDTH, HAWAII_HEIGHT, HAWAII_PADDING_X, HAWAII_PADDING_Y)
         if hawaii_admin0
@@ -175,6 +238,17 @@ def render_html(
         projected_admin1,
         viewport,
         projected_union,
+        transformer,
+        grid_spacing=grid_spacing,
+        show_grid=show_grid,
+        width=WIDTH,
+        height=HEIGHT,
+    )
+    short_basemap_svg = render_basemap_svg(
+        short_projected_admin0,
+        short_projected_admin1,
+        short_viewport,
+        short_projected_union,
         transformer,
         grid_spacing=grid_spacing,
         show_grid=show_grid,
@@ -196,13 +270,25 @@ def render_html(
             height=HAWAII_HEIGHT,
         )
         basemap_svg = inject_hawaii_display_inset(basemap_svg, hawaii_basemap_svg)
+        short_basemap_svg = inject_hawaii_display_inset(short_basemap_svg, hawaii_basemap_svg)
         write_text(hawaii_basemap_svg, hawaii_basemap_output)
     else:
         write_text(basemap_svg, hawaii_basemap_output)
     write_text(basemap_svg, basemap_output)
+    write_text(short_basemap_svg, short_basemap_output)
 
     main_deployments = [d for d in deployments if d.get("map_region") != "hawaii"]
     hawaii_deployments = [d for d in deployments if d.get("map_region") == "hawaii"]
+    short_main_deployments = [
+        d for d in main_deployments
+        if deployment_in_lon_lat_extent(d, SHORT_MAP_POINT_EXTENT_LON_LAT)
+    ]
+    short_main_deployments = filter_deployments_for_short_basemap(
+        short_main_deployments,
+        transformer,
+        projected_union,
+        short_projected_union,
+    )
 
     projected_deployments = project_deployments(
         main_deployments,
@@ -210,6 +296,13 @@ def render_html(
         viewport,
         projected_union,
         display_union,
+    )
+    projected_short_deployments = project_deployments(
+        short_main_deployments,
+        transformer,
+        short_viewport,
+        short_projected_union,
+        short_display_union,
     )
     projected_hawaii_deployments = project_deployments(
         hawaii_deployments,
@@ -222,6 +315,7 @@ def render_html(
     ) if hawaii_viewport else []
     projected_hawaii_deployments = relocate_hawaii_deployments(projected_hawaii_deployments)
     basemap_data = "data:image/svg+xml;base64," + base64.b64encode(basemap_svg.encode("utf-8")).decode("ascii")
+    short_basemap_data = "data:image/svg+xml;base64," + base64.b64encode(short_basemap_svg.encode("utf-8")).decode("ascii")
     hawaii_basemap_data = (
         "data:image/svg+xml;base64," + base64.b64encode(hawaii_basemap_svg.encode("utf-8")).decode("ascii")
         if hawaii_basemap_svg
@@ -234,7 +328,18 @@ def render_html(
         "__TITLE__": title,
         "__MAIN_DEPLOYMENTS_JSON__": json.dumps(projected_deployments, ensure_ascii=True, separators=(",", ":")),
         "__HAWAII_DEPLOYMENTS_JSON__": json.dumps(projected_hawaii_deployments, ensure_ascii=True, separators=(",", ":")),
+        "__SHORT_MAIN_DEPLOYMENTS_JSON__": json.dumps(
+            projected_short_deployments,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ),
+        "__SHORT_HAWAII_DEPLOYMENTS_JSON__": json.dumps(
+            projected_hawaii_deployments,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ),
         "__MAP_IMAGE__": basemap_data,
+        "__SHORT_MAP_IMAGE__": short_basemap_data,
         "__HAWAII_MAP_IMAGE__": hawaii_basemap_data,
         "__PIN_IMAGE__": pin_data,
         "__IMAGE_WIDTH__": str(WIDTH),
@@ -244,6 +349,7 @@ def render_html(
         "__GENERATED_AT__": generated_at,
         "__SOURCE_CSV__": str(input_path),
         "__BASEMAP_SVG__": str(basemap_output),
+        "__SHORT_BASEMAP_SVG__": str(short_basemap_output),
         "__HAWAII_BASEMAP_SVG__": str(hawaii_basemap_output),
         "__SOURCE_PIN__": str(pin_image),
         "__PIN_IS_SVG__": json.dumps(pin_image.suffix.lower() == ".svg"),
@@ -315,6 +421,21 @@ def projected_extent_box(
     return box(min(xs), min(ys), max(xs), max(ys))
 
 
+def filter_components_north_of(geom: BaseGeometry, max_lat: float) -> BaseGeometry:
+    if geom.is_empty:
+        return geom
+    if isinstance(geom, Polygon):
+        return geom if geom.representative_point().y <= max_lat else GeometryCollection()
+    if isinstance(geom, MultiPolygon):
+        kept = [part for part in geom.geoms if part.representative_point().y <= max_lat]
+        return MultiPolygon(kept) if kept else GeometryCollection()
+    if isinstance(geom, GeometryCollection):
+        kept = [filter_components_north_of(part, max_lat) for part in geom.geoms]
+        kept = [part for part in kept if not part.is_empty]
+        return unary_union(kept) if kept else GeometryCollection()
+    return geom
+
+
 def project_boundaries(
     rows: list[tuple[str, BaseGeometry]],
     transformer: Transformer,
@@ -322,12 +443,16 @@ def project_boundaries(
     cutout: BaseGeometry | None = None,
     simplify_m: float = 5_000,
     simplify_preserve: bool = True,
+    component_max_lat: float | None = None,
 ) -> list[tuple[str, BaseGeometry]]:
     out: list[tuple[str, BaseGeometry]] = []
     for cc, geom in rows:
         if geom.is_empty:
             continue
-        projected = project_geometry(geom, transformer)
+        source_geom = filter_components_north_of(geom, component_max_lat) if component_max_lat is not None else geom
+        if source_geom.is_empty:
+            continue
+        projected = project_geometry(source_geom, transformer)
         clipped = projected.intersection(extent_box)
         if cutout is not None:
             clipped = clipped.difference(cutout)
@@ -692,6 +817,11 @@ def main() -> None:
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output HTML path")
     parser.add_argument("--basemap-output", default=DEFAULT_BASEMAP_OUTPUT, help="Generated SVG basemap path")
     parser.add_argument(
+        "--short-basemap-output",
+        default=DEFAULT_SHORT_BASEMAP_OUTPUT,
+        help="Generated SVG basemap path for the clipped short-map variant",
+    )
+    parser.add_argument(
         "--hawaii-basemap-output",
         default=DEFAULT_HAWAII_BASEMAP_OUTPUT,
         help="Generated SVG inset basemap for Hawaii",
@@ -708,6 +838,7 @@ def main() -> None:
         Path(args.input),
         Path(args.cache_dir),
         Path(args.basemap_output),
+        Path(args.short_basemap_output),
         Path(args.hawaii_basemap_output),
         Path(args.pin_image),
         args.title,
@@ -717,6 +848,7 @@ def main() -> None:
     write_text(html_text, Path(args.output))
     print(f"Rendered {args.output} from {args.input}")
     print(f"Generated basemap {args.basemap_output}")
+    print(f"Generated short basemap {args.short_basemap_output}")
     print(f"Generated Hawaiian inset basemap {args.hawaii_basemap_output}")
 
 
@@ -777,7 +909,7 @@ HTML_TEMPLATE = """<!doctype html>
     .title { min-width: 240px; padding-left: 2px; }
     .title h1 { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 700; }
     .title p { margin: 3px 0 0; color: var(--muted); font-size: 11px; font-weight: 600; }
-    .modebar, .toolbar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+    .modebar, .toolbar, .framebar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
     .mode-btn, .tool-btn {
       appearance: none;
       border: 1px solid var(--line);
@@ -792,7 +924,7 @@ HTML_TEMPLATE = """<!doctype html>
       cursor: pointer;
       white-space: nowrap;
     }
-    .mode-btn.active, .tool-btn:active {
+    .mode-btn.active, .tool-btn.active, .tool-btn:active {
       background: #00875a;
       color: #fff;
       border-color: #00875a;
@@ -839,6 +971,10 @@ HTML_TEMPLATE = """<!doctype html>
       <button class="mode-btn" id="pointsToggle" type="button">Points</button>
     </nav>
     <div class="toolbar">
+      <div class="framebar" aria-label="Map frame">
+        <button class="tool-btn active" id="fullFrameBtn" type="button">Full map</button>
+        <button class="tool-btn" id="shortFrameBtn" type="button">Short map</button>
+      </div>
       <button class="tool-btn" id="zoomInBtn" type="button">Zoom +</button>
       <button class="tool-btn" id="zoomOutBtn" type="button">Zoom -</button>
       <button class="tool-btn" id="fitBtn" type="button">Fit</button>
@@ -851,10 +987,14 @@ HTML_TEMPLATE = """<!doctype html>
     const sourceCsv = "__SOURCE_CSV__";
     const sourcePin = "__SOURCE_PIN__";
     const basemapSvg = "__BASEMAP_SVG__";
+    const shortBasemapSvg = "__SHORT_BASEMAP_SVG__";
     const hawaiiBasemapSvg = "__HAWAII_BASEMAP_SVG__";
     const mainDeployments = __MAIN_DEPLOYMENTS_JSON__;
     const hawaiiDeployments = __HAWAII_DEPLOYMENTS_JSON__;
+    const shortMainDeployments = __SHORT_MAIN_DEPLOYMENTS_JSON__;
+    const shortHawaiiDeployments = __SHORT_HAWAII_DEPLOYMENTS_JSON__;
     const mainMapImage = "__MAP_IMAGE__";
+    const shortMapImage = "__SHORT_MAP_IMAGE__";
     const hawaiiMapImage = "__HAWAII_MAP_IMAGE__";
     const pinImage = "__PIN_IMAGE__";
     const pinIsSvg = __PIN_IS_SVG__;
@@ -894,20 +1034,73 @@ HTML_TEMPLATE = """<!doctype html>
     pinImg.src = pinImage;
 
     const layerState = { hotZonesEnabled: true, pinsEnabled: true, pointsEnabled: false };
+    const mapFrames = {
+      full: {
+        label: "Full map",
+        mapVariant: "generated_full_basemap",
+        basemapSvg,
+        image: mainMapImage,
+        mainDeployments,
+        hawaiiDeployments
+      },
+      short: {
+        label: "Short map",
+        mapVariant: "generated_clipped_basemap",
+        basemapSvg: shortBasemapSvg,
+        image: shortMapImage,
+        mainDeployments: shortMainDeployments,
+        hawaiiDeployments: shortHawaiiDeployments
+      }
+    };
+    const frameProfiles = {
+      full: {
+        label: mapFrames.full.label,
+        basemapSvg: mapFrames.full.basemapSvg,
+        mapVariant: "generated_full_basemap",
+        visiblePoints: mapFrames.full.mainDeployments.length + mapFrames.full.hawaiiDeployments.length,
+        excludedPoints: 0
+      },
+      short: {
+        label: mapFrames.short.label,
+        basemapSvg: mapFrames.short.basemapSvg,
+        mapVariant: "generated_clipped_basemap",
+        visiblePoints: mapFrames.short.mainDeployments.length + mapFrames.short.hawaiiDeployments.length,
+        excludedPoints: Math.max(
+          0,
+          mapFrames.full.mainDeployments.length + mapFrames.full.hawaiiDeployments.length -
+            (mapFrames.short.mainDeployments.length + mapFrames.short.hawaiiDeployments.length)
+        )
+      }
+    };
+    let activeFrame = "full";
     let transform = d3.zoomIdentity;
     let viewport = { width: 0, height: 0, ratio: 1 };
     let fitScale = 1;
     let raf = null;
     let pinRevealStart = performance.now();
 
-    const mainPoints = (mainDeployments || [])
+    let mainPoints = [];
+    let hawaiiPoints = [];
+    let allPoints = [];
+
+    function preparePoints(deployments) {
+      return (deployments || [])
       .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y))
       .map((d) => ({ ...d, _pinDelay: hashDeterministicDelay(d.id, d.zip, d.cc) }));
-    const hawaiiPoints = (hawaiiDeployments || [])
-      .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y))
-      .map((d) => ({ ...d, _pinDelay: hashDeterministicDelay(d.id, d.zip, d.cc) }));
-    const allPoints = mainPoints.concat(hawaiiPoints);
-    const mainHotZones = buildHotZones(allPoints, HOTZONE_DISTANCE, imageSize.width, imageSize.height);
+    }
+
+    function activateFrameData(frameId) {
+      const frame = mapFrames[frameId] || mapFrames.full;
+      document.body.dataset.mapFrame = frameId;
+      mapImageEl.src = frame.image;
+      mainPoints = preparePoints(frame.mainDeployments);
+      hawaiiPoints = preparePoints(frame.hawaiiDeployments);
+      allPoints = mainPoints.concat(hawaiiPoints);
+      document.getElementById("headerCount").textContent = format.format(allPoints.length);
+      startPinReveal();
+    }
+
+    activateFrameData(activeFrame);
 
     function resizeCanvas(canvas, ctx) {
       const rect = stage.getBoundingClientRect();
@@ -925,6 +1118,16 @@ HTML_TEMPLATE = """<!doctype html>
       resizeCanvas(pinCanvas, pinCtx);
     }
 
+    function activeStageRect() {
+      const rect = stage.getBoundingClientRect();
+      return {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom)
+      };
+    }
+
     function fitTransform() {
       const padX = Math.min(72, Math.max(20, viewport.width * 0.035));
       const padY = Math.min(56, Math.max(20, viewport.height * 0.035));
@@ -933,6 +1136,22 @@ HTML_TEMPLATE = """<!doctype html>
       const y = (viewport.height - imageSize.height * k) / 2;
       fitScale = k;
       return d3.zoomIdentity.translate(x, y).scale(k);
+    }
+
+    function frameProof() {
+      const frame = mapFrames[activeFrame] || mapFrames.full;
+      const fullPointCount = (mapFrames.full.mainDeployments.length || 0) + (mapFrames.full.hawaiiDeployments.length || 0);
+      const framePointCount = (frame.mainDeployments.length || 0) + (frame.hawaiiDeployments.length || 0);
+      return {
+        id: activeFrame,
+        label: frame.label,
+        basemapSvg: frame.basemapSvg,
+        mapVariant: frame.mapVariant,
+        stage: activeStageRect(),
+        visiblePoints: framePointCount,
+        excludedPoints: Math.max(0, fullPointCount - framePointCount),
+        visibleMapRect: { x: 0, y: 0, width: imageSize.width, height: imageSize.height }
+      };
     }
 
     function currentScale() {
@@ -1122,6 +1341,20 @@ HTML_TEMPLATE = """<!doctype html>
       document.getElementById("hotZonesToggle").classList.toggle("active", layerState.hotZonesEnabled);
       document.getElementById("pinsToggle").classList.toggle("active", layerState.pinsEnabled);
       document.getElementById("pointsToggle").classList.toggle("active", layerState.pointsEnabled);
+      document.getElementById("fullFrameBtn").classList.toggle("active", activeFrame === "full");
+      document.getElementById("shortFrameBtn").classList.toggle("active", activeFrame === "short");
+    }
+
+    function setFrame(frame) {
+      if (!mapFrames[frame]) return;
+      activeFrame = frame;
+      activateFrameData(frame);
+      rebuildControls();
+      window.requestAnimationFrame(() => {
+        resizeAll();
+        setTransform(fitTransform(), true);
+        if (window.__LSN_MAP_FINAL_PROOF__) window.__LSN_MAP_FINAL_PROOF__.activeFrame = frameProof();
+      });
     }
 
     function onLayerStateUpdate(next) {
@@ -1217,6 +1450,8 @@ HTML_TEMPLATE = """<!doctype html>
     document.getElementById("pointsToggle").addEventListener("click", () => {
       onLayerStateUpdate({ ...layerState, pointsEnabled: !layerState.pointsEnabled });
     });
+    document.getElementById("fullFrameBtn").addEventListener("click", () => setFrame("full"));
+    document.getElementById("shortFrameBtn").addEventListener("click", () => setFrame("short"));
     document.getElementById("fitBtn").addEventListener("click", () => setTransform(fitTransform(), true));
     document.getElementById("zoomInBtn").addEventListener("click", () => setTransform(transform.scale(ZOOM_STEP), true));
     document.getElementById("zoomOutBtn").addEventListener("click", () => setTransform(transform.scale(1 / ZOOM_STEP), true));
@@ -1254,6 +1489,8 @@ HTML_TEMPLATE = """<!doctype html>
       projectionName,
       renderer: "d3-gis-final-single-transform-canvas",
       rows: mainDeployments.length + hawaiiDeployments.length,
+      activeFrame: frameProof(),
+      frameProfiles,
       mainRows: mainPoints.length,
       hawaiiRows: hawaiiPoints.length,
       points: allPoints.length,

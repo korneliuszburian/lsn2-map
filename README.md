@@ -2,7 +2,7 @@
 
 Pipeline geokoduje deploymenty generatorów z Excela dla US/CA/MX i eksportuje dane map-ready: XLSX, CSV, GeoJSON, exceptions CSV oraz run summary.
 
-Aktualny klient-facing deliverable to jedna finalna mapa LSN/North America: jasna GIS/canvas mapa + zielone hot-zones + animowane piny + Points toggle + smooth zoom/fullscreen. Starsze warianty porównawcze nie są już aktywną ścieżką review.
+Aktualny klient-facing deliverable to jedna finalna mapa LSN/North America: jasna GIS/canvas mapa + zielone hot-zones + animowane piny + Points toggle + smooth zoom/fullscreen. Pełny kadr mapy jest domyślny, a skrócony kadr północnej Kanady jest tylko wariacją do porównania. Starsze warianty porównawcze nie są już aktywną ścieżką review.
 
 ## Setup
 
@@ -41,6 +41,7 @@ python -m src.render_lsn_final_map \
   --input data/output/clients_geocoded.csv \
   --output data/output/lsn-map-final.html \
   --basemap-output data/output/lsn-north-america-final.svg \
+  --short-basemap-output data/output/lsn-north-america-final-short.svg \
   --pin-image data/assets/client-map/pin-na-map.svg
 ```
 
@@ -73,10 +74,12 @@ Generated under `data/output/`:
 - `geocode_exceptions.csv`
 - `run_summary.json`
 - `lsn-map-final.html`
+- `lsn-north-america-final.svg`
+- `lsn-north-america-final-short.svg`
 
 `data/output/` is ignored. Regenerate the final map with `make prototype` or `make map-final`; the source of truth is `src/render_lsn_final_map.py`.
 
-The supplied LSN artwork is not a georeferenced GIS basemap. The active final renderer therefore uses a GIS-correct generated basemap styled to match the client reference, with Great Lakes cutouts, Caribbean visual islands, a Hawaii inset when relevant, canvas hot-zones, animated SVG pins, Points/Pins/Hot Zones controls, and smooth zoom.
+The supplied LSN artwork is not a georeferenced GIS basemap. The active final renderer therefore uses a GIS-correct generated basemap styled to match the client reference, with Great Lakes cutouts, Caribbean visual islands, a Hawaii inset when relevant, canvas hot-zones, animated SVG pins, Points/Pins/Hot Zones controls, smooth zoom, and a `Full map` / `Short map` frame toggle. `Short map` is a separate generated basemap (`lsn-north-america-final-short.svg`) that naturally trims upper Canada by dropping whole northern detached components above `SHORT_MAP_COMPONENT_MAX_LAT = 66.5`; it does not slice polygons with a rectangular crop. Short-map point placement also drops far snap artifacts beyond `SHORT_MAP_MAX_SNAP_DISTANCE_M = 100_000`. Current mock data: `Full map` shows 1200 deployments; `Short map` shows 1184.
 
 Local preview URL after `make serve`:
 
@@ -102,9 +105,10 @@ Key files:
 
 - Last full gate before the 2026-06-30 asset update: `pytest` passing and `ruff` passing.
 - 2026-07-06 final-map reset: active client-facing output is only `data/output/lsn-map-final.html`, generated from `src.render_lsn_final_map`.
+- 2026-07-07 boss-feedback update: final map keeps `Full map` as default and adds `Short map` as a separate generated clipped-basemap variation for discussion of cropped northern Canada.
 - `pyright`: currently failing on pandas/GeoPandas typing issues.
 - Map renderer: one canvas overlay with green hot-zones plus SVG pins, not 1200 DOM markers.
-- Visual proof is local under `.local-lab/proof/lsn-map/` and `.local-lab/proof/lsn-map-2026-06-30/` and is ignored by git.
+- Visual proof is local under `.local-lab/proof/lsn-map/`, `.local-lab/proof/lsn-map-2026-06-30/`, and `.local-lab/proof/lsn-map-2026-07-07/` and is ignored by git.
 
 2026-06-30 note: in the current shell session `.venv` was absent, so only the standalone renderer was verified with global `python3`. Recreate/activate `.venv` before running full pipeline/test/lint gates.
 

@@ -1006,37 +1006,58 @@ HTML_TEMPLATE = """<!doctype html>
       top: 16px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px;
+      gap: 7px;
+      padding: 6px 7px;
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 8px;
       background: var(--panel);
-      box-shadow: 0 20px 42px rgba(9, 18, 14, .12);
+      box-shadow: 0 14px 32px rgba(9, 18, 14, .10);
       backdrop-filter: blur(14px);
     }
-    .title { min-width: 170px; padding-left: 2px; }
-    .title h1 { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 700; }
-    .modebar, .toolbar, .framebar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+    .title { min-width: 154px; padding-left: 2px; }
+    .title h1 { margin: 0; font-size: 13px; line-height: 1.15; font-weight: 740; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0; align-items: center; margin-left: auto; }
+    .control-group {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      padding: 0 8px;
+    }
+    .control-group + .control-group::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 5px;
+      bottom: 5px;
+      width: 1px;
+      background: rgba(22, 34, 30, .14);
+    }
+    .control-group:first-child { padding-left: 0; }
+    .control-group:last-child { padding-right: 0; }
+    .modebar, .framebar { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .mode-btn, .tool-btn {
       appearance: none;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      height: 33px;
-      padding: 0 11px;
+      border-radius: 7px;
+      height: 29px;
+      padding: 0 9px;
       font: inherit;
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 10.5px;
+      font-weight: 720;
       color: #1f2f2b;
-      background: rgba(255, 255, 255, .97);
+      background: rgba(255, 255, 255, .88);
       cursor: pointer;
       white-space: nowrap;
+      box-shadow: 0 1px 0 rgba(255,255,255,.82) inset;
     }
     .mode-btn.active, .tool-btn.active, .tool-btn:active {
       background: #00875a;
       color: #fff;
       border-color: #00875a;
+      box-shadow: 0 6px 14px rgba(0, 135, 90, .18);
     }
-    .toolbar { margin-left: auto; }
     .pin-popup {
       position: fixed;
       z-index: 30;
@@ -1057,7 +1078,9 @@ HTML_TEMPLATE = """<!doctype html>
     @media (max-width: 760px) {
       .hud { right: 16px; left: 16px; flex-wrap: wrap; }
       .title { min-width: 180px; }
-      .toolbar { margin-left: 0; }
+      .toolbar { margin-left: 0; width: 100%; }
+      .control-group { flex: 1 1 auto; padding: 0 7px; }
+      .control-group:first-child { padding-left: 0; }
     }
   </style>
 </head>
@@ -1071,24 +1094,30 @@ HTML_TEMPLATE = """<!doctype html>
     <div class="title">
       <h1>__TITLE__</h1>
     </div>
-    <nav class="modebar" aria-label="Layer toggles">
-      <button class="mode-btn active" id="hotZonesToggle" type="button">Hot Zones</button>
-      <button class="mode-btn active" id="pinsToggle" type="button">Pins</button>
-      <button class="mode-btn" id="pointsToggle" type="button">Points</button>
-    </nav>
     <div class="toolbar">
-      <div class="framebar" aria-label="Map frame">
-        <button class="tool-btn active" id="fullFrameBtn" type="button">Full map</button>
-        <button class="tool-btn" id="shortFrameBtn" type="button">Short map</button>
+      <div class="control-group" aria-label="Layer toggles">
+        <nav class="modebar">
+          <button class="mode-btn active" id="hotZonesToggle" type="button">Hot Zones</button>
+          <button class="mode-btn active" id="pinsToggle" type="button">Pins</button>
+          <button class="mode-btn" id="pointsToggle" type="button">Points</button>
+        </nav>
       </div>
-      <div class="framebar" aria-label="Water layer">
-        <button class="tool-btn active" id="lakesBtn" type="button">Lakes</button>
-        <button class="tool-btn" id="noLakesBtn" type="button">No lakes</button>
+      <div class="control-group" aria-label="Map variants">
+        <div class="framebar" aria-label="Map frame">
+          <button class="tool-btn active" id="fullFrameBtn" type="button">Full map</button>
+          <button class="tool-btn" id="shortFrameBtn" type="button">Short map</button>
+        </div>
+        <div class="framebar" aria-label="Water layer">
+          <button class="tool-btn active" id="lakesBtn" type="button">Lakes</button>
+          <button class="tool-btn" id="noLakesBtn" type="button">No lakes</button>
+        </div>
       </div>
-      <button class="tool-btn" id="zoomInBtn" type="button">Zoom +</button>
-      <button class="tool-btn" id="zoomOutBtn" type="button">Zoom -</button>
-      <button class="tool-btn" id="fitBtn" type="button">Fit</button>
-      <button class="tool-btn" id="fullscreenBtn" type="button">Fullscreen</button>
+      <div class="control-group" aria-label="Map tools">
+        <button class="tool-btn" id="zoomInBtn" type="button">Zoom +</button>
+        <button class="tool-btn" id="zoomOutBtn" type="button">Zoom -</button>
+        <button class="tool-btn" id="fitBtn" type="button">Fit</button>
+        <button class="tool-btn" id="fullscreenBtn" type="button">Fullscreen</button>
+      </div>
     </div>
   </div>
   <div id="popup" class="pin-popup"></div>
